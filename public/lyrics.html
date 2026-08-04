@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Floating Lyrics Overlay</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: transparent;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100vw;
+      height: 100vh;
+      -webkit-app-region: drag;
+      cursor: move;
+      user-select: none;
+    }
+    .lyric-text {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 300;
+      text-align: center;
+      color: #e8e8e8;
+      text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+      padding: 3px 10px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
+      transition: opacity 0.2s ease;
+    }
+    body.sneak-mode .lyric-text {
+      font-family: Consolas, monospace;
+      color: #58a6ff;
+      background: rgba(13, 17, 23, 0.75);
+      border: 1px solid #30363d;
+      text-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="lyric-text" id="lyricText">Waiting for music...</div>
+
+  <script>
+    try {
+      const { ipcRenderer } = require('electron');
+      const textEl = document.getElementById('lyricText');
+
+      function notifyResize() {
+        requestAnimationFrame(() => {
+          const rect = textEl.getBoundingClientRect();
+          const w = Math.ceil(rect.width) + 4;
+          const h = Math.ceil(rect.height) + 2;
+          ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
+        });
+      }
+
+      ipcRenderer.on('lyric-update', (event, text) => {
+        textEl.textContent = text || '🎵';
+        notifyResize();
+      });
+
+      ipcRenderer.on('toggle-sneak-mode', (event, isSneak) => {
+        if (isSneak) {
+          document.body.classList.add('sneak-mode');
+        } else {
+          document.body.classList.remove('sneak-mode');
+        }
+        notifyResize();
+      });
+
+      // Initial size notify
+      notifyResize();
+    } catch (err) {
+      console.error('Lyrics Renderer Error:', err);
+    }
+  </script>
+</body>
+</html>

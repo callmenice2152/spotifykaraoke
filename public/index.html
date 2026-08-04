@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Command</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="normal-mode">
+  
+  <div class="app-container">
+    <!-- Success / Action Toast Banner -->
+    <div class="toast-banner hidden" id="toastBanner">
+      <span class="toast-icon" id="toastIcon">✅</span>
+      <span class="toast-message" id="toastMessage">Success</span>
+    </div>
+
+    <!-- Top Header (Draggable Handle) -->
+    <header class="app-header draggable">
+      <div class="header-left no-drag">
+        <!-- Status Badge -->
+        <div class="status-badge connected" id="statusBadge" title="Status">
+          <span class="status-dot"></span>
+          <span class="status-text" id="statusText">CONNECTED</span>
+        </div>
+      </div>
+
+      <div class="header-right no-drag">
+        <button class="icon-btn" id="btnKaraokeToggle" title="Toggle Synced Karaoke Lyrics (Alt+K)">
+          <span class="btn-icon">🎤</span>
+          <span class="btn-label">Lyrics</span>
+        </button>
+        <button class="icon-btn" id="btnSneakToggle" title="Toggle Stealth Disguise Mode (Alt+M)">
+          <span class="btn-icon">🕶️</span>
+          <span class="btn-label" id="sneakBtnLabel">Sneak</span>
+        </button>
+        <button class="icon-btn" id="btnSettingsModal" title="Spotify Setup & Client ID">
+          <span class="btn-icon">⚙️</span>
+        </button>
+        <button class="icon-btn minimize-btn" id="btnMinimizeWindow" title="Hide to Tray (Alt+Space)">
+          <span class="btn-icon">━</span>
+        </button>
+        <button class="icon-btn close-btn-app" id="btnCloseAppWindow" title="Exit Application">
+          <span class="btn-icon">✕</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Search Section -->
+    <div class="search-section">
+      <div class="search-box">
+        <svg class="search-icon-svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#1DB954" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Search for tracks, artists, or playlists..." autocomplete="off" autofocus>
+        <div class="shortcut-hint">
+          <kbd>Alt</kbd>
+          <span class="shortcut-plus">+</span>
+          <kbd>Space</kbd>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Device Warning Bar -->
+    <div class="device-alert hidden" id="deviceAlert">
+      <span>⚠️ No active Spotify device detected. Open Spotify Desktop app!</span>
+      <button class="btn-retry" id="btnRefreshDevices">🔄 Refresh</button>
+    </div>
+
+    <!-- Search Results List -->
+    <div class="results-container collapsed" id="resultsContainer">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🎵</div>
+        <p class="empty-title">Type a song or artist name to quick search</p>
+        <p class="empty-sub"><kbd>Enter</kbd> = Play track &nbsp;|&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> = Add to Queue</p>
+      </div>
+      <div class="track-list" id="trackList"></div>
+    </div>
+
+    <!-- Synced Karaoke Lyrics Container -->
+    <div class="lyrics-container collapsed" id="lyricsContainer">
+      <div class="lyrics-scroll-box" id="lyricsScrollBox">
+        <div class="lyrics-placeholder" id="lyricsPlaceholder">Waiting for music to play...</div>
+      </div>
+    </div>
+
+    <!-- Footer Section (Mini Player) -->
+    <footer class="mini-player" id="miniPlayer">
+      <div class="now-playing">
+        <img id="playerAlbumArt" class="player-art" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' fill='%231a2336'/%3E%3C/svg%3E" alt="Album Art">
+        <div class="player-info">
+          <div class="player-title" id="playerTitle">Save Your Tears</div>
+          <div class="player-artist" id="playerArtist">The Weeknd</div>
+        </div>
+      </div>
+
+      <!-- Center Controls (Sleek Dark Theme) -->
+      <div class="player-controls">
+        <button class="ctrl-btn text-ctrl" id="btnPrev" title="Previous Track">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        
+        <!-- Stealth Glass Play/Pause Button -->
+        <button class="ctrl-btn play-circle-btn" id="btnPlayPause" title="Play / Pause (Space)">
+          <svg class="play-icon" id="playIconSvg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        
+        <button class="ctrl-btn text-ctrl" id="btnNext" title="Next Track">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+
+      <!-- Right Controls (Stealth Volume Slider & Mute Toggle) -->
+      <div class="player-right-controls">
+        <button class="ctrl-btn vol-btn" id="btnMuteToggle" title="Mute / Unmute (Alt+0) | Scroll Wheel to Adjust">
+          <svg id="volIconSvg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+        <input type="range" id="volSlider" class="vol-slider" min="0" max="100" value="70" title="Scroll mouse wheel anywhere on footer to change volume">
+        <span class="vol-percent" id="volPercent">70%</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚙️ Spotify Developer Setup</h3>
+        <button class="close-btn" id="btnCloseSettings">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ol class="setup-steps">
+          <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a></li>
+          <li>Set App Name (e.g. <code>My Sneak Bar</code>)</li>
+          <li>Add Redirect URI: <code id="displayRedirectUri">http://127.0.0.1:3000/callback</code></li>
+          <li>Copy your <strong>Client ID</strong> and paste below:</li>
+        </ol>
+
+        <div class="form-group">
+          <label for="clientIdInput">Spotify Client ID:</label>
+          <input type="text" id="clientIdInput" placeholder="Paste your 32-character Client ID here...">
+        </div>
+
+        <div class="form-group">
+          <label for="redirectUriInput">Redirect URI:</label>
+          <input type="text" id="redirectUriInput" value="http://127.0.0.1:3000/callback">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnCancelSettings">Cancel</button>
+        <button class="btn-primary" id="btnSaveSettings">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
