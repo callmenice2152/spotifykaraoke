@@ -147,6 +147,9 @@ ipcMain.on('resize-lyrics-window', (event, { width, height }) => {
 
 function parseAndMergeLrc(rawLrc) {
   if (!rawLrc) return null;
+  if (rawLrc.includes('此歌曲为') || rawLrc.includes('纯音乐') || rawLrc.includes('暂无歌词')) {
+    return null;
+  }
   const decoded = rawLrc
     .replace(/&#58;/g, ':')
     .replace(/&#46;/g, '.')
