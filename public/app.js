@@ -966,8 +966,16 @@ function updateConnectionStatus(isConnected, text) {
 }
 
 // Settings Modal
-function showSettingsModal() { settingsModal.classList.remove('hidden'); }
-function hideSettingsModal() { settingsModal.classList.add('hidden'); }
+function showSettingsModal() { 
+  settingsModal.classList.remove('hidden'); 
+  notifyWindowResize(460);
+}
+function hideSettingsModal() { 
+  settingsModal.classList.add('hidden'); 
+  if (resultsContainer.classList.contains('collapsed')) {
+    notifyWindowResize(210);
+  }
+}
 
 function saveSettings() {
   const cVal = clientIdInput.value.trim();

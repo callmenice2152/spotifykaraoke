@@ -665,22 +665,27 @@ body.sneak-mode .player-art {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 999;
+  overflow: hidden;
 }
 
 .modal-card {
   background: var(--header-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--card-radius);
-  width: 90%;
-  max-width: 420px;
-  padding: 18px;
+  width: 94%;
+  max-width: 440px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .modal-header {
@@ -688,6 +693,33 @@ body.sneak-mode .player-art {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-body {
+  overflow-y: auto;
+  max-height: 280px;
+  padding-right: 6px;
+  margin-bottom: 12px;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-green);
 }
 
 .close-btn {
@@ -696,6 +728,14 @@ body.sneak-mode .player-art {
   color: var(--text-secondary);
   font-size: 20px;
   cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .setup-steps {
