@@ -2,6 +2,7 @@ node_modules/
 session.json
 my_spotify_data/
 Spotify-Karaoke-win32-x64/
+Spotify-Karaoke-Windows.zip
 *.log
 .env
 .DS_Store
