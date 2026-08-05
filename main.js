@@ -185,7 +185,8 @@ function parseAndMergeLrc(rawLrc) {
       currentGroup = { timeMs: item.timeMs, text: item.text };
     } else {
       const timeDiff = item.timeMs - currentGroup.timeMs;
-      if (timeDiff <= 6000 && (currentGroup.text.length + item.text.length) <= 80) {
+      // Only merge word-level fragments (<1500ms gap) so natural lines match Karaoke Bird
+      if (timeDiff <= 1500 && (currentGroup.text.length + item.text.length) <= 50) {
         currentGroup.text += ' ' + item.text;
       } else {
         mergedList.push(currentGroup);
