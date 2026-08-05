@@ -243,6 +243,38 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     .trim() || trackName;
   const cleanArtist = artistName.split(',')[0].trim();
 
+  // 0. Check local_lyrics.json custom overrides first
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const localPath = path.join(__dirname, 'local_lyrics.json');
+    if (fs.existsSync(localPath)) {
+      const localData = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+      const key = `${artistName.toLowerCase()} - ${trackName.toLowerCase()}`.trim();
+      const cleanKey = `${cleanArtist.toLowerCase()} - ${cleanTrack.toLowerCase()}`.trim();
+      
+      let matchedLyrics = null;
+      for (const k of Object.keys(localData)) {
+        const normK = k.toLowerCase().trim();
+        if (normK === key || normK === cleanKey) {
+          matchedLyrics = localData[k];
+          break;
+        }
+      }
+      
+      if (matchedLyrics) {
+        console.log('Using local lyrics override for:', trackName);
+        if (Array.isArray(matchedLyrics)) {
+          return parseAndMergeLrc(matchedLyrics.join('\n'));
+        } else if (typeof matchedLyrics === 'string') {
+          return parseAndMergeLrc(matchedLyrics);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error reading local lyrics override:', err);
+  }
+
   // 1. Try LRCLIB /api/get
   try {
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTrack)}&artist_name=${encodeURIComponent(cleanArtist)}`;
