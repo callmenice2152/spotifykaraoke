@@ -551,11 +551,10 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
     }
   }
 
-  // Handle 429 Rate Limit gracefully without breaking playback state
+  // Handle 429 Rate Limit gracefully without breaking playback state or showing repetitive toast popups
   if (res.status === 429) {
     const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
-    console.warn(`Spotify 429 Rate Limited. Pausing polling for ${retryAfter}s`);
-    showToastNotification('⚠️', `Spotify Rate Limit. Change Client ID in Settings ⚙️ if stuck.`);
+    console.warn(`Spotify 429 Rate Limited (${retryAfter}s).`);
     return { isRateLimited: true, retryAfter };
   }
 
