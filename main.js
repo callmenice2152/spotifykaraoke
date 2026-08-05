@@ -204,6 +204,35 @@ function parseAndMergeLrc(rawLrc) {
   }).join('\n');
 }
 
+function pickBestSongMatch(songs, targetTrack, targetArtist) {
+  if (!songs || songs.length === 0) return null;
+  const norm = str => (str || '').toLowerCase().replace(/\s+/g, '').replace(/[^\w\u0E00-\u0E7F]/g, '');
+  const targetNorm = norm(targetTrack);
+  const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
+
+  let bestSong = null;
+  let bestScore = -999;
+
+  for (let song of songs) {
+    const songTitle = song.songtitle || song.songname || '';
+    const songNorm = norm(songTitle);
+    const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
+
+    let score = 0;
+    if (songNorm === targetNorm) score += 100;
+    else if (songNorm.includes(targetNorm) || targetNorm.includes(songNorm)) score += 50;
+
+    // Penalty if song has remix/version tag but Spotify track does NOT
+    if (!isTargetRemix && isSongRemix) score -= 40;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestSong = song;
+    }
+  }
+  return bestSong || songs[0];
+}
+
 // Native Node.js Lyrics Engine (LRCLIB + QQ Music) for 100% Thai & International Coverage
 async function getSyncedLyricsBackend(trackName, artistName) {
   const cleanTrack = trackName
@@ -225,19 +254,26 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     }
   } catch (err) {}
 
-  // 2. Try QQ Music API (100% Thai & Asian Songs)
+  // 2. Try QQ Music API with Smart Original vs Remix Matching
   try {
-    const query = cleanArtist + ' ' + cleanTrack;
-    const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(query)}&format=json&p=1&n=5`;
-    const res = await fetch(searchUrl, {
-      headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const songs = data.data?.song?.list || [];
-      for (let song of songs) {
-        if (song.songmid) {
-          const lyricUrl = `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${song.songmid}&format=json&nobase64=1`;
+    const queries = [
+      cleanArtist + ' ' + trackName,
+      cleanArtist + ' ' + cleanTrack,
+      trackName,
+      cleanTrack
+    ];
+
+    for (let q of queries) {
+      const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&p=1&n=5`;
+      const res = await fetch(searchUrl, {
+        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const songs = data.data?.song?.list || [];
+        const bestSong = pickBestSongMatch(songs, trackName, artistName);
+        if (bestSong && bestSong.songmid) {
+          const lyricUrl = `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${bestSong.songmid}&format=json&nobase64=1`;
           const lRes = await fetch(lyricUrl, {
             headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
           });
