@@ -4,15 +4,6 @@ A sleek, lightweight Electron desktop application that displays real-time synced
 
 ---
 
-## 📦 Direct Download (Pre-built Windows Executable)
-
-For users who want to run the application immediately without installing Node.js:
-1. Download **[`Spotify-Karaoke-Windows.zip`](./Spotify-Karaoke-Windows.zip)** from this repository.
-2. Extract the ZIP file and run **`Spotify-Karaoke.exe`**.
-3. Click **Settings (⚙️)**, enter your free Spotify Client ID, and enjoy!
-
----
-
 ## ✨ Features
 
 - 🎤 **Floating Lyrics Overlay**: Transparent, borderless window displaying real-time synced lyrics directly over your desktop.
@@ -22,7 +13,7 @@ For users who want to run the application immediately without installing Node.js
 
 ---
 
-## 🚀 Developer Setup Guide
+## 🚀 Setup & Run Guide
 
 ### 1. Get a Free Spotify Client ID (1 Minute)
 - Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
@@ -39,6 +30,11 @@ For users who want to run the application immediately without installing Node.js
 
 ### 3. Run from Source
 ```bash
+# Clone the repository
+git clone https://github.com/callmenice2152/spotifykaraoke.git
+cd spotifykaraoke
+
+# Install dependencies and start application
 npm install
 npx electron .
 ```
