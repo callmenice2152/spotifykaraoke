@@ -212,7 +212,7 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
 
   let bestSong = null;
-  let bestScore = -999;
+  let bestScore = 0;
 
   for (let song of songs) {
     const songTitle = song.songtitle || song.songname || '';
@@ -231,7 +231,8 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
       bestSong = song;
     }
   }
-  return bestSong || songs[0];
+  // Require at least a partial title match (score >= 40)
+  return bestScore >= 40 ? bestSong : null;
 }
 
 // Native Node.js Lyrics Engine (LRCLIB + QQ Music) for 100% Thai & International Coverage
@@ -250,13 +251,13 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     const localPath = path.join(__dirname, 'local_lyrics.json');
     if (fs.existsSync(localPath)) {
       const localData = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-      const key = `${artistName.toLowerCase()} - ${trackName.toLowerCase()}`.trim();
-      const cleanKey = `${cleanArtist.toLowerCase()} - ${cleanTrack.toLowerCase()}`.trim();
+      const normTrack = trackName.toLowerCase().replace(/\s+/g, '');
+      const normCleanTrack = cleanTrack.toLowerCase().replace(/\s+/g, '');
       
       let matchedLyrics = null;
       for (const k of Object.keys(localData)) {
-        const normK = k.toLowerCase().trim();
-        if (normK === key || normK === cleanKey) {
+        const normK = k.toLowerCase().replace(/\s+/g, '');
+        if (normK.includes(normTrack) || normK.includes(normCleanTrack)) {
           matchedLyrics = localData[k];
           break;
         }
