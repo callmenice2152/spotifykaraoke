@@ -553,8 +553,9 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
 
   // Handle 429 Rate Limit gracefully without breaking playback state
   if (res.status === 429) {
-    const retryAfter = parseInt(res.headers.get('Retry-After') || '2', 10);
+    const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
     console.warn(`Spotify 429 Rate Limited. Pausing polling for ${retryAfter}s`);
+    showToastNotification('⚠️', `Spotify Rate Limit. Change Client ID in Settings ⚙️ if stuck.`);
     return { isRateLimited: true, retryAfter };
   }
 
@@ -896,11 +897,11 @@ function updateOverlayLyricText(text) {
   }
 }
 
-// Currently Playing Polling — every 2.5s to prevent rate limiting
+// Currently Playing Polling — every 4.0s to stay safely within Spotify Web API rate limits
 function startNowPlayingPolling() {
   fetchCurrentlyPlaying();
   if (nowPlayingInterval) clearInterval(nowPlayingInterval);
-  nowPlayingInterval = setInterval(fetchCurrentlyPlaying, 2500);
+  nowPlayingInterval = setInterval(fetchCurrentlyPlaying, 4000);
 }
 
 let consecutiveNullPolls = 0;
