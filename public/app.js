@@ -522,6 +522,13 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
     }
   }
 
+  // Handle 429 Rate Limit gracefully without breaking playback state
+  if (res.status === 429) {
+    const retryAfter = parseInt(res.headers.get('Retry-After') || '2', 10);
+    console.warn(`Spotify 429 Rate Limited. Pausing polling for ${retryAfter}s`);
+    return { isRateLimited: true, retryAfter };
+  }
+
   if (res.status === 204) return true;
   return res.ok ? await res.json() : null;
 }
@@ -871,6 +878,9 @@ let consecutiveNullPolls = 0;
 
 async function fetchCurrentlyPlaying() {
   const data = await spotifyApiCall('/v1/me/player/currently-playing');
+  if (data && data.isRateLimited) {
+    return; // Retain current playback state during Spotify 429 rate limit window
+  }
   if (data && data.item) {
     consecutiveNullPolls = 0;
     playerTitle.textContent = data.item.name;
