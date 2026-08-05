@@ -21,11 +21,14 @@
     <!-- Top Header (Draggable Handle) -->
     <header class="app-header draggable">
       <div class="header-left no-drag">
-        <!-- Status Badge -->
-        <div class="status-badge connected" id="statusBadge" title="Status">
+        <!-- Status Badge (Click to Sync) -->
+        <div class="status-badge connected" id="statusBadge" title="Click to Force Sync & Reconnect Spotify">
           <span class="status-dot"></span>
           <span class="status-text" id="statusText">CONNECTED</span>
         </div>
+        <button class="icon-btn refresh-btn" id="btnForceReconnect" title="Force Reconnect & Sync Spotify (Click if lyrics freeze)">
+          <span class="btn-icon" id="syncBtnIcon">🔄</span>
+        </button>
       </div>
 
       <div class="header-right no-drag">

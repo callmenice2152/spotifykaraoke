@@ -157,6 +157,33 @@ async function saveSessionToServer() {
   } catch (err) {}
 }
 
+// Force Reconnect & Player Sync
+async function forceSyncAndReconnect() {
+  const syncBtnIcon = document.getElementById('syncBtnIcon');
+  if (syncBtnIcon) syncBtnIcon.classList.add('spinning');
+  showToastNotification('🔄', 'Syncing with Spotify...');
+
+  try {
+    // 1. Force Refresh Token
+    if (spotifyRefreshToken) {
+      await refreshAccessToken();
+    }
+
+    // 2. Reset Null Poll Counter & Fetch Currently Playing
+    consecutiveNullPolls = 0;
+    currentTrackId = null; // force lyrics reload
+    await fetchCurrentlyPlaying();
+
+    updateConnectionStatus(true, 'CONNECTED');
+    showToastNotification('✅', 'Synced with Spotify!');
+  } catch (err) {
+    console.error('Force Sync Error:', err);
+    showToastNotification('⚠️', 'Sync Failed');
+  } finally {
+    if (syncBtnIcon) syncBtnIcon.classList.remove('spinning');
+  }
+}
+
 function setupEventListeners() {
   // Search Input
   searchInput.addEventListener('input', (e) => {
@@ -174,7 +201,9 @@ function setupEventListeners() {
   document.addEventListener('keydown', handleGlobalKeydown);
 
   // Buttons
-  if (statusBadge) statusBadge.addEventListener('click', showSettingsModal);
+  const btnForceReconnect = document.getElementById('btnForceReconnect');
+  if (btnForceReconnect) btnForceReconnect.addEventListener('click', forceSyncAndReconnect);
+  if (statusBadge) statusBadge.addEventListener('click', forceSyncAndReconnect);
   if (btnSettingsModal) btnSettingsModal.addEventListener('click', showSettingsModal);
   btnCancelSettings.addEventListener('click', hideSettingsModal);
   btnCloseSettings.addEventListener('click', hideSettingsModal);

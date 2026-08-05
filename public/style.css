@@ -146,6 +146,28 @@ body {
   background: rgba(29, 185, 84, 0.1);
   border: 1px solid rgba(29, 185, 84, 0.3);
   color: var(--accent-green);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-badge:hover {
+  background: rgba(29, 185, 84, 0.2);
+  transform: scale(1.03);
+}
+
+.refresh-btn {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.spinning {
+  display: inline-block;
+  animation: spinAnimation 0.8s linear infinite;
+}
+
+@keyframes spinAnimation {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .status-dot {
