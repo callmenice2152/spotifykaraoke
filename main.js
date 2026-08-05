@@ -294,12 +294,27 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     if (resGet.ok) {
       const data = await resGet.json();
       if (data.syncedLyrics && data.syncedLyrics.length > 20) {
-        return parseAndMergeLrc(data.syncedLyrics);
+        const parsed = parseAndMergeLrc(data.syncedLyrics);
+        if (parsed) return parsed;
       }
     }
   } catch (err) {}
 
-  // 2. Try QQ Music API with Smart Original vs Remix Matching
+  // 2. Try LRCLIB search (100% Clean Thai & International Synced Lyrics)
+  try {
+    const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + cleanTrack)}`;
+    const resQ = await fetch(qUrl);
+    if (resQ.ok) {
+      const list = await resQ.json();
+      const syncedItem = list.find(i => i.syncedLyrics && i.syncedLyrics.length > 20);
+      if (syncedItem) {
+        const parsed = parseAndMergeLrc(syncedItem.syncedLyrics);
+        if (parsed) return parsed;
+      }
+    }
+  } catch (err) {}
+
+  // 3. Try QQ Music API with Smart Original vs Remix Matching
   try {
     const queries = [
       cleanArtist + ' ' + trackName,
@@ -326,23 +341,12 @@ async function getSyncedLyricsBackend(trackName, artistName) {
             const lData = await lRes.json();
             const lrc = lData.lyric;
             if (lrc && lrc.includes('[')) {
-              return parseAndMergeLrc(lrc);
+              const parsed = parseAndMergeLrc(lrc);
+              if (parsed) return parsed;
             }
           }
         }
       }
-    }
-  } catch (err) {}
-
-  // 3. Try LRCLIB search fallback
-  try {
-    const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + cleanTrack)}`;
-    const resQ = await fetch(qUrl);
-    if (resQ.ok) {
-      const list = await resQ.json();
-      const syncedItem = list.find(i => i.syncedLyrics && i.syncedLyrics.length > 20);
-      if (syncedItem) return parseAndMergeLrc(syncedItem.syncedLyrics);
-    }
   } catch (err) {}
 
   return null;
