@@ -211,11 +211,12 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   if (!songs || songs.length === 0) return null;
   const norm = str => (str || '').toLowerCase().replace(/\s+/g, '').replace(/[^\w\u0E00-\u0E7F]/g, '');
   const targetNorm = norm(targetTrack);
+  const cleanTrackNorm = norm(targetTrack.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/-.*/g, '').trim());
   const artistNorm = norm(targetArtist);
   const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
 
   let bestSong = null;
-  let bestScore = 0;
+  let bestScore = -999;
 
   for (let song of songs) {
     const songTitle = song.trackName || song.songtitle || song.songname || '';
@@ -226,8 +227,16 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
     const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
 
     let score = 0;
-    if (songNorm === targetNorm) score += 50;
-    else if (songNorm.includes(targetNorm) || targetNorm.includes(songNorm)) score += 30;
+    if (songNorm === targetNorm) {
+      score += 100;
+    } else if (songNorm === cleanTrackNorm) {
+      score += 80;
+    } else if (songNorm.includes(cleanTrackNorm) || cleanTrackNorm.includes(songNorm)) {
+      score += 40;
+      if (songNorm.includes('express') && !targetNorm.includes('express')) score -= 60;
+    } else {
+      score -= 50;
+    }
 
     // Artist verification (+50 if artist matches, -40 penalty if artist mismatches)
     if (artistNorm && (singerList.includes(artistNorm) || artistNorm.includes(singerList))) {
