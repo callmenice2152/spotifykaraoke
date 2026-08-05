@@ -852,9 +852,9 @@ function startLocalLyricsClock() {
       const gap = nextLineTime - lineTime;
       const age = currentMs - lineTime;
 
-      // Clear old lingering line after 4.2s or 80% of gap duration
-      if (age > 4200 && age > (gap * 0.8)) {
-        updateOverlayLyricText('♪ ... ♪');
+      // If current line has finished (age > 3600ms or > 70% of gap) and next line exists, pre-roll next sentence waiting on screen!
+      if (age > 3600 && age > (gap * 0.7) && nextLine && nextLine.text) {
+        updateOverlayLyricText(nextLine.text);
       } else {
         updateActiveLyricLine(activeIndex);
       }

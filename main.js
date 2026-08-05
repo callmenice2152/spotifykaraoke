@@ -185,7 +185,7 @@ function parseAndMergeLrc(rawLrc) {
       currentGroup = { timeMs: item.timeMs, text: item.text };
     } else {
       const timeDiff = item.timeMs - currentGroup.timeMs;
-      if (timeDiff <= 5500 && (currentGroup.text.length + item.text.length) <= 65) {
+      if (timeDiff <= 6000 && (currentGroup.text.length + item.text.length) <= 80) {
         currentGroup.text += ' ' + item.text;
       } else {
         mergedList.push(currentGroup);
