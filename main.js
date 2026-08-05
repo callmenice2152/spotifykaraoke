@@ -185,7 +185,6 @@ function parseAndMergeLrc(rawLrc) {
       currentGroup = { timeMs: item.timeMs, text: item.text };
     } else {
       const timeDiff = item.timeMs - currentGroup.timeMs;
-      // Only merge word-level fragments (<1500ms gap) so natural lines match Karaoke Bird
       if (timeDiff <= 1500 && (currentGroup.text.length + item.text.length) <= 50) {
         currentGroup.text += ' ' + item.text;
       } else {
@@ -209,6 +208,7 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   if (!songs || songs.length === 0) return null;
   const norm = str => (str || '').toLowerCase().replace(/\s+/g, '').replace(/[^\w\u0E00-\u0E7F]/g, '');
   const targetNorm = norm(targetTrack);
+  const artistNorm = norm(targetArtist);
   const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
 
   let bestSong = null;
@@ -217,22 +217,30 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   for (let song of songs) {
     const songTitle = song.songtitle || song.songname || '';
     const songNorm = norm(songTitle);
+    const singerList = (song.singer || []).map(s => norm(s.name || '')).join('');
     const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
 
     let score = 0;
-    if (songNorm === targetNorm) score += 100;
-    else if (songNorm.includes(targetNorm) || targetNorm.includes(songNorm)) score += 50;
+    if (songNorm === targetNorm) score += 50;
+    else if (songNorm.includes(targetNorm) || targetNorm.includes(songNorm)) score += 30;
+
+    // Artist verification (+50 if artist matches, -40 penalty if artist mismatches)
+    if (artistNorm && (singerList.includes(artistNorm) || artistNorm.includes(singerList))) {
+      score += 50;
+    } else {
+      score -= 40;
+    }
 
     // Penalty if song has remix/version tag but Spotify track does NOT
-    if (!isTargetRemix && isSongRemix) score -= 40;
+    if (!isTargetRemix && isSongRemix) score -= 30;
 
     if (score > bestScore) {
       bestScore = score;
       bestSong = song;
     }
   }
-  // Require at least a partial title match (score >= 40)
-  return bestScore >= 40 ? bestSong : null;
+  // Require high confidence score (score >= 50)
+  return bestScore >= 50 ? bestSong : null;
 }
 
 // Native Node.js Lyrics Engine (LRCLIB + QQ Music) for 100% Thai & International Coverage
