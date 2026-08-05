@@ -218,9 +218,11 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   let bestScore = 0;
 
   for (let song of songs) {
-    const songTitle = song.songtitle || song.songname || '';
+    const songTitle = song.trackName || song.songtitle || song.songname || '';
     const songNorm = norm(songTitle);
-    const singerList = (song.singer || []).map(s => norm(s.name || '')).join('');
+    const singerList = Array.isArray(song.singer)
+      ? song.singer.map(s => norm(s.name || '')).join('')
+      : norm(song.artistName || '');
     const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
 
     let score = 0;
@@ -306,8 +308,8 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     const resQ = await fetch(qUrl);
     if (resQ.ok) {
       const list = await resQ.json();
-      const syncedItem = list.find(i => i.syncedLyrics && i.syncedLyrics.length > 20);
-      if (syncedItem) {
+      const syncedItem = pickBestSongMatch(list, trackName, artistName);
+      if (syncedItem && syncedItem.syncedLyrics) {
         const parsed = parseAndMergeLrc(syncedItem.syncedLyrics);
         if (parsed) return parsed;
       }
