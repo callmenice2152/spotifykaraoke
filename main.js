@@ -347,6 +347,7 @@ async function getSyncedLyricsBackend(trackName, artistName) {
           }
         }
       }
+    }
   } catch (err) {}
 
   return null;
