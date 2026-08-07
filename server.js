@@ -174,7 +174,11 @@ function polishThaiTranslation(originalEng, rawThai) {
 
   const isHipHop = orig.includes('nigga') || orig.includes('bitch') || orig.includes('shot') || orig.includes('snitched') || orig.includes('doubted') || orig.includes('money') || orig.includes('problems') || orig.includes('lawyers');
 
-  // Real Casual & Hip-Hop Context Rules
+  // Real Casual Context Rules
+  if (orig.includes('straight up')) {
+    text = text.replace(/ตรงไป|ซื่อตรง|ตรงๆ/gi, 'พูดจริงไม่ได้อำ');
+    if (!text || text === 'ตรงไป') text = 'พูดจริงไม่ได้อำ!';
+  }
   if (orig.includes('how much money you got') || orig.includes('how many problems you got')) {
     text = text.replace(/คุณ/g, 'มึง').replace(/ฉัน/g, 'กู').replace(/มาก/g, 'โคตรเยอะ');
   }
