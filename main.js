@@ -68,7 +68,7 @@ function createLyricsWindow() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    resizable: false,
+    resizable: true,
     show: false,
     skipTaskbar: true,
     hasShadow: false,
@@ -139,8 +139,8 @@ ipcMain.on('sync-sneak-mode', (event, isSneak) => {
 // IPC Listener to dynamically resize lyricsWindow to fit exact text dimensions
 ipcMain.on('resize-lyrics-window', (event, { width, height }) => {
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-    const w = Math.min(1400, Math.max(60, Math.ceil(width)));
-    const h = Math.min(200, Math.max(20, Math.ceil(height)));
+    const w = Math.max(60, Math.ceil(width));
+    const h = Math.max(18, Math.ceil(height));
     lyricsWindow.setSize(w, h, false);
   }
 });

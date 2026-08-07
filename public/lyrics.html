@@ -3,9 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>Floating Lyrics Overlay</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     * {
       box-sizing: border-box;
@@ -15,13 +12,13 @@
     body {
       background: transparent;
       color: #ffffff;
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       overflow: hidden;
       display: flex;
       justify-content: center;
       align-items: center;
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       -webkit-app-region: drag;
       cursor: move;
       user-select: none;
@@ -31,29 +28,28 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 3px 10px;
-      border-radius: 5px;
+      padding: 4px 14px;
+      border-radius: 6px;
       background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(8px);
       transition: opacity 0.2s ease;
-      white-space: nowrap;
       width: max-content;
+      max-width: none;
+      white-space: nowrap;
     }
     .lyric-text {
-      font-family: 'Outfit', sans-serif;
-      font-size: 7.7px;
-      font-weight: 500;
+      font-size: 9px;
+      font-weight: 400;
       color: #ffffff;
       text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
       white-space: nowrap;
       letter-spacing: 0.2px;
     }
     .lyric-trans {
-      font-family: 'Outfit', sans-serif;
-      font-size: 6.8px;
-      font-weight: 400;
+      font-size: 8px;
+      font-weight: 300;
       color: #70e000;
-      opacity: 0.95;
+      opacity: 0.9;
       margin-top: 1px;
       font-style: normal;
       white-space: nowrap;
@@ -64,7 +60,7 @@
     }
     body.sneak-mode .lyric-box {
       font-family: Consolas, monospace;
-      background: rgba(13, 17, 23, 0.92);
+      background: rgba(13, 17, 23, 0.85);
       border: 1px solid #30363d;
     }
     body.sneak-mode .lyric-text {
@@ -92,11 +88,9 @@
 
       function notifyResize() {
         requestAnimationFrame(() => {
-          const textW = textEl.scrollWidth || 0;
-          const transW = transEl.classList.contains('hidden') ? 0 : (transEl.scrollWidth || 0);
-          const maxTextW = Math.max(textW, transW, 50);
-          const w = maxTextW + 24;
-          const h = (transEl.classList.contains('hidden') ? 18 : 32) + 6;
+          const rect = boxEl.getBoundingClientRect();
+          const w = Math.ceil(rect.width) + 24;
+          const h = Math.ceil(rect.height) + 8;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
       }
