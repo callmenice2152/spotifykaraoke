@@ -175,8 +175,8 @@ function polishThaiTranslation(originalEng, rawThai) {
   const isHipHop = orig.includes('nigga') || orig.includes('bitch') || orig.includes('shot') || orig.includes('snitched') || orig.includes('doubted') || orig.includes('money') || orig.includes('problems') || orig.includes('lawyers');
 
   // Fix common Google Translate machine glitches across ALL songs automatically
+  text = text.replace(/ขอบคุณนะ ต่อไป|ขอบคุณนะ ถัดไป|ขอบเธอ ต่อไป|ขอบเธอ ถัดไป|ขอบใจนะ ต่อไป|ขอบใจนะ ถัดไป/gi, 'ขอบคุณนะ... คนต่อไป!');
   text = text.replace(/ขอบเธอ|ขอบคุณ u|ขอบใจ u/gi, 'ขอบคุณนะ');
-  text = text.replace(/ขอบคุณนะ ถัดไป|ขอบเธอ ถัดไป|ขอบใจนะ ถัดไป/gi, 'ขอบคุณนะ... คนต่อไป!');
   text = text.replace(/ถัดไป/gi, 'คนต่อไป');
   text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ');
   text = text.replace(/คนที่ถูกตำหนิ/gi, 'ฝ่ายที่ผิดเอง');
