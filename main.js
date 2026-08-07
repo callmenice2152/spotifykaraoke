@@ -368,7 +368,7 @@ async function getSyncedLyricsBackend(trackName, artistName) {
   return null;
 }
 
-// Real Casual Human & Raw Hip-Hop Translation Engine
+// Systemic Dynamic Thai Lyric Polisher (Auto-fixes machine translation glitches for ALL songs)
 function polishThaiTranslation(originalEng, rawThai) {
   if (!rawThai) return '';
   let orig = (originalEng || '').toLowerCase();
@@ -376,40 +376,10 @@ function polishThaiTranslation(originalEng, rawThai) {
 
   const isHipHop = orig.includes('nigga') || orig.includes('bitch') || orig.includes('shot') || orig.includes('snitched') || orig.includes('doubted') || orig.includes('money') || orig.includes('problems') || orig.includes('lawyers');
 
-  // Real Casual Context Rules
-  if (orig.includes('straight up')) {
-    text = text.replace(/ตรงไป|ซื่อตรง|ตรงๆ/gi, 'พูดจริงไม่ได้อำ');
-    if (!text || text === 'ตรงไป') text = 'พูดจริงไม่ได้อำ!';
-  }
-  if (orig.includes('how much money you got') || orig.includes('how many problems you got')) {
-    text = text.replace(/คุณ/g, 'มึง').replace(/ฉัน/g, 'กู').replace(/มาก/g, 'โคตรเยอะ');
-  }
-  if (orig.includes('put my heart in the bag') && orig.includes('nobody gets hurt')) {
-    return 'บอกให้เอาใจใส่กระเป๋าไว้ ถ้าไม่อยากเจ็บตัว';
-  }
-  if (orig.includes('running from her love') || orig.includes('i\'m a fugitive')) {
-    return 'ตอนนี้ต้องวิ่งหนีรักของเธอ กลายเป็นคนหลบหนีไปละ';
-  }
-  if (orig.includes('in my feelings')) {
-    return 'ตอนนี้โคตรดิ่งเลย รู้สึกโหว่ๆ ในใจ';
-  }
-  if (orig.includes('feel a hole')) {
-    return 'รู้สึกโหว่ๆ ในใจชิปหาย';
-  }
-  if (orig.includes('pour a four')) {
-    return 'เทยา/เหล้าผสมกินแม่มเลย';
-  }
-
-  // Real Casual Word Replacement Cleaner
-  text = text.replace(/กะเทย|กระเทย/gi, 'พวกมัน');
-  if (isHipHop) {
-    text = text.replace(/คุณ/gi, 'มึง');
-    text = text.replace(/ฉัน/gi, 'กู');
-  } else {
-    text = text.replace(/คุณ/gi, 'เธอ');
-    text = text.replace(/กู/gi, 'ฉัน');
-  }
-
+  // Fix common Google Translate machine glitches across ALL songs automatically
+  text = text.replace(/ขอบเธอ|ขอบคุณ u|ขอบใจ u/gi, 'ขอบคุณนะ');
+  text = text.replace(/ขอบคุณนะ ถัดไป|ขอบเธอ ถัดไป|ขอบใจนะ ถัดไป/gi, 'ขอบคุณนะ... คนต่อไป!');
+  text = text.replace(/ถัดไป/gi, 'คนต่อไป');
   text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ');
   text = text.replace(/คนที่ถูกตำหนิ/gi, 'ฝ่ายที่ผิดเอง');
   text = text.replace(/ฉันเดาว่า/gi, 'สงสัย');
@@ -417,8 +387,18 @@ function polishThaiTranslation(originalEng, rawThai) {
   text = text.replace(/เด็กน้อย|ทารก/gi, 'เธอ');
   text = text.replace(/นกสองหัว|ยีนส์|ประเภทเมีย/gi, 'ยัยตัวดี');
   text = text.replace(/ผู้อพยพ|ผู้หลบหนี/gi, 'คนหลบหนี');
-  text = text.replace(/บอกลา/gi, 'บาย');
+  text = text.replace(/กะเทย|กระเทย/gi, 'พวกมัน');
+  text = text.replace(/ตรงไป/gi, 'พูดจริงไม่ได้อำ');
   text = text.replace(/หัวใจแตกสลาย/gi, 'อกหักว่ะ');
+
+  // Genre-based pronoun handling
+  if (isHipHop) {
+    text = text.replace(/คุณ/gi, 'มึง');
+    text = text.replace(/ฉัน/gi, 'กู');
+  } else {
+    text = text.replace(/คุณ/gi, 'เธอ');
+    text = text.replace(/กู/gi, 'ฉัน');
+  }
 
   return text.trim();
 }
@@ -432,7 +412,9 @@ async function translateTextBackend(text) {
   // Don't translate if already Thai text
   if (/[\u0E00-\u0E7F]/.test(trimmed)) return '';
 
-  const normKey = trimmed.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  // Strip parenthetical ad-libs (e.g. '(Next)', '(Yeah)') for clean matching
+  const cleanEng = trimmed.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').trim() || trimmed;
+  const normKey = cleanEng.toLowerCase().replace(/[^\w\s]/g, '').trim();
   if (translationCache[normKey]) return translationCache[normKey];
 
   // 1. Check local_translations.json
@@ -450,14 +432,14 @@ async function translateTextBackend(text) {
     }
   } catch (err) {}
 
-  // 2. Fetch online translation + apply emotional polish
+  // 2. Fetch online translation + apply systemic polish
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(trimmed)}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       const rawThai = data[0]?.map(item => item[0]).join('') || '';
-      const polished = polishThaiTranslation(trimmed, rawThai);
+      const polished = polishThaiTranslation(cleanEng, rawThai);
       if (polished) {
         translationCache[normKey] = polished;
         return polished;
