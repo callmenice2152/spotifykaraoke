@@ -868,16 +868,12 @@ function renderLyrics() {
       transEl.className = 'lyric-translation';
       el.appendChild(transEl);
 
-      if (line.translation) {
-        transEl.textContent = line.translation;
-      } else {
-        fetchLineTranslation(line.text).then(trans => {
-          if (trans) {
-            line.translation = trans;
-            transEl.textContent = trans;
-          }
-        });
-      }
+      fetchLineTranslation(line.text).then(trans => {
+        if (trans) {
+          line.translation = trans;
+          transEl.textContent = trans;
+        }
+      });
     }
 
     lyricsScrollBox.appendChild(el);
@@ -918,8 +914,14 @@ function startLocalLyricsClock() {
 
       // If current line has finished (age > 3600ms or > 70% of gap) and next line exists, pre-roll next sentence waiting on screen!
       if (age > 3600 && age > (gap * 0.7) && nextLine && nextLine.text) {
-        const nextTrans = (translationEnabled && nextLine.translation) ? nextLine.translation : '';
-        updateOverlayLyricText(translationEnabled && nextTrans ? { original: nextLine.text, translation: nextTrans } : nextLine.text);
+        if (translationEnabled && nextLine.text && !/[\u0E00-\u0E7F]/.test(nextLine.text)) {
+          fetchLineTranslation(nextLine.text).then(nextTrans => {
+            if (nextTrans) nextLine.translation = nextTrans;
+            updateOverlayLyricText(nextTrans ? { original: nextLine.text, translation: nextTrans } : nextLine.text);
+          });
+        } else {
+          updateOverlayLyricText(nextLine.text);
+        }
       } else {
         updateActiveLyricLine(activeIndex);
       }
@@ -943,13 +945,19 @@ function updateActiveLyricLine(activeIndex) {
 
   if (activeIndex !== lastActiveIndex) {
     lastActiveIndex = activeIndex;
-    let activeText = lyricsList[activeIndex]?.text || '';
-    let activeTrans = lyricsList[activeIndex]?.translation || '';
-    if (!activeText.trim()) {
-      activeText = '♪ ... ♪';
+    const line = lyricsList[activeIndex];
+    let activeText = line?.text || '';
+    if (!activeText.trim()) activeText = '♪ ... ♪';
+
+    if (translationEnabled && activeText && !/[\u0E00-\u0E7F]/.test(activeText)) {
+      fetchLineTranslation(activeText).then(trans => {
+        if (trans) line.translation = trans;
+        const payload = trans ? { original: activeText, translation: trans } : activeText;
+        updateOverlayLyricText(payload);
+      });
+    } else {
+      updateOverlayLyricText(activeText);
     }
-    const payload = (translationEnabled && activeTrans) ? { original: activeText, translation: activeTrans } : activeText;
-    updateOverlayLyricText(payload);
   }
 }
 
