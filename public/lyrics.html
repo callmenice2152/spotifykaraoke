@@ -24,42 +24,35 @@
       user-select: none;
     }
     .lyric-box {
-      display: flex;
+      display: inline-flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 6px 18px;
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(10px);
+      padding: 3px 14px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(8px);
       transition: opacity 0.2s ease;
-      min-width: 480px;
-      max-width: 620px;
-      width: auto;
+      width: max-content;
+      max-width: none;
     }
     .lyric-text {
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 9px;
+      font-weight: 400;
       color: #ffffff;
       text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
-      white-space: normal;
-      word-break: break-word;
-      text-align: center;
+      white-space: nowrap;
       letter-spacing: 0.2px;
-      line-height: 1.35;
     }
     .lyric-trans {
-      font-size: 10px;
-      font-weight: 400;
+      font-size: 8px;
+      font-weight: 300;
       color: #70e000;
-      opacity: 0.95;
-      margin-top: 3px;
+      opacity: 0.9;
+      margin-top: 1px;
       font-style: normal;
-      white-space: normal;
-      word-break: break-word;
-      text-align: center;
+      white-space: nowrap;
       letter-spacing: 0.1px;
-      line-height: 1.35;
     }
     .hidden {
       display: none !important;
@@ -95,8 +88,8 @@
       function notifyResize() {
         requestAnimationFrame(() => {
           const rect = boxEl.getBoundingClientRect();
-          const w = Math.max(520, Math.ceil(rect.width) + 24);
-          const h = Math.ceil(rect.height) + 12;
+          const w = Math.ceil(rect.width) + 12;
+          const h = Math.ceil(rect.height) + 4;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
       }
