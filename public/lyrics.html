@@ -17,8 +17,8 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       -webkit-app-region: drag;
       cursor: move;
       user-select: none;
@@ -28,27 +28,28 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 3px 10px;
-      border-radius: 4px;
-      background: rgba(0, 0, 0, 0.45);
-      backdrop-filter: blur(8px);
+      padding: 5px 16px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(10px);
       transition: opacity 0.2s ease;
-      max-width: 95vw;
+      white-space: nowrap;
+      width: max-content;
     }
     .lyric-text {
-      font-size: 9px;
-      font-weight: 400;
+      font-size: 11px;
+      font-weight: 500;
       color: #ffffff;
       text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
       white-space: nowrap;
       letter-spacing: 0.2px;
     }
     .lyric-trans {
-      font-size: 8px;
-      font-weight: 300;
+      font-size: 10px;
+      font-weight: 400;
       color: #70e000;
-      opacity: 0.9;
-      margin-top: 1px;
+      opacity: 0.95;
+      margin-top: 2px;
       font-style: normal;
       white-space: nowrap;
       letter-spacing: 0.1px;
@@ -58,7 +59,7 @@
     }
     body.sneak-mode .lyric-box {
       font-family: Consolas, monospace;
-      background: rgba(13, 17, 23, 0.85);
+      background: rgba(13, 17, 23, 0.92);
       border: 1px solid #30363d;
     }
     body.sneak-mode .lyric-text {
@@ -86,9 +87,11 @@
 
       function notifyResize() {
         requestAnimationFrame(() => {
-          const rect = boxEl.getBoundingClientRect();
-          const w = Math.ceil(rect.width) + 6;
-          const h = Math.ceil(rect.height) + 4;
+          const textW = textEl.scrollWidth || 0;
+          const transW = transEl.classList.contains('hidden') ? 0 : (transEl.scrollWidth || 0);
+          const maxTextW = Math.max(textW, transW, 60);
+          const w = maxTextW + 36;
+          const h = (transEl.classList.contains('hidden') ? 22 : 40) + 10;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
       }
