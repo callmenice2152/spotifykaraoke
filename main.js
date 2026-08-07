@@ -401,6 +401,7 @@ function polishThaiTranslation(originalEng, rawThai) {
   }
 
   // Real Casual Word Replacement Cleaner
+  text = text.replace(/กะเทย|กระเทย/gi, 'พวกมัน');
   if (isHipHop) {
     text = text.replace(/คุณ/gi, 'มึง');
     text = text.replace(/ฉัน/gi, 'กู');
