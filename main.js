@@ -150,6 +150,10 @@ function parseAndMergeLrc(rawLrc) {
   if (rawLrc.includes('此歌曲为') || rawLrc.includes('纯音乐') || rawLrc.includes('暂无歌词')) {
     return null;
   }
+  // Reject pure Korean lyrics if no Thai characters are present
+  if (/[\uac00-\ud7af]/.test(rawLrc) && !/[\u0E00-\u0E7F]/.test(rawLrc)) {
+    return null;
+  }
   const decoded = rawLrc
     .replace(/&#58;/g, ':')
     .replace(/&#46;/g, '.')
@@ -364,10 +368,100 @@ async function getSyncedLyricsBackend(trackName, artistName) {
   return null;
 }
 
+// Real Raw Street Translation Engine (Emo Rap / Hip-Hop Trained with มึง/มัน/กู)
+function polishThaiTranslation(originalEng, rawThai) {
+  if (!rawThai) return '';
+  let orig = (originalEng || '').toLowerCase();
+  let text = rawThai;
+
+  // Real Raw Street Context Rules
+  if (orig.includes('put my heart in the bag') && orig.includes('nobody gets hurt')) {
+    return 'มันบอกให้กูเอาใจใส่กระเป๋าไว้ ถ้าไม่อยากเจ็บตัว';
+  }
+  if (orig.includes('running from her love') || orig.includes('i\'m a fugitive')) {
+    return 'ตอนนี้กูต้องวิ่งหนีรักของมึง กลายเป็นคนหลบหนีไปละ';
+  }
+  if (orig.includes('in my feelings')) {
+    return 'ตอนนี้กูโคตรดิ่งเลย รู้สึกโหว่ๆ ในใจ';
+  }
+  if (orig.includes('feel a hole')) {
+    return 'ทำกูรู้สึกโหว่ๆ ในใจชิปหาย';
+  }
+  if (orig.includes('pour a four')) {
+    return 'เทยา/เหล้าผสมกินแม่มเลย';
+  }
+
+  // Raw Street Pronoun & Phrasing Replacements (มึง / มัน / กู)
+  text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ ของมึง');
+  text = text.replace(/คนที่ถูกตำหนิ/gi, 'ฝ่ายที่ผิดเอง');
+  text = text.replace(/ฉันเดาว่า/gi, 'สงสัย');
+  text = text.replace(/F\*ck คุณ|เย็ดคุณ|เย็ดมึง/gi, 'ค*ยเหอะ');
+  text = text.replace(/เด็กน้อย|ทารก/gi, 'มึง');
+  text = text.replace(/นกสองหัว|ยีนส์|ประเภทเมีย/gi, 'อีตัวดี');
+  text = text.replace(/ผู้อพยพ|ผู้หลบหนี/gi, 'คนหลบหนี');
+  text = text.replace(/คุณ/gi, 'มึง');
+  text = text.replace(/เธอ/gi, 'มึง');
+  text = text.replace(/ฉัน/gi, 'กู');
+  text = text.replace(/บอกลา/gi, 'บาย');
+  text = text.replace(/หัวใจแตกสลาย/gi, 'อกหักว่ะ');
+
+  return text.trim();
+}
+
+const translationCache = {};
+
+async function translateTextBackend(text) {
+  if (!text || !text.trim()) return '';
+  const trimmed = text.trim();
+
+  // Don't translate if already Thai text
+  if (/[\u0E00-\u0E7F]/.test(trimmed)) return '';
+
+  const normKey = trimmed.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  if (translationCache[normKey]) return translationCache[normKey];
+
+  // 1. Check local_translations.json
+  try {
+    const transPath = path.join(__dirname, 'local_translations.json');
+    if (fs.existsSync(transPath)) {
+      const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
+      for (const k of Object.keys(localTrans)) {
+        const normK = k.toLowerCase().replace(/[^\w\s]/g, '').trim();
+        if (normK === normKey || normKey.includes(normK)) {
+          translationCache[normKey] = localTrans[k];
+          return localTrans[k];
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 2. Fetch online translation + apply emotional polish
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(trimmed)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      const rawThai = data[0]?.map(item => item[0]).join('') || '';
+      const polished = polishThaiTranslation(trimmed, rawThai);
+      if (polished) {
+        translationCache[normKey] = polished;
+        return polished;
+      }
+    }
+  } catch (err) {}
+
+  return '';
+}
+
 // IPC Handle for Lyrics Fetching directly from Electron Main Node Process
 ipcMain.handle('get-lyrics', async (event, { track, artist }) => {
   if (!track || !artist) return null;
   return await getSyncedLyricsBackend(track, artist);
+});
+
+// IPC Handle for Real-time Line Translation
+ipcMain.handle('get-translation', async (event, text) => {
+  return await translateTextBackend(text);
 });
 
 // IPC Listener to toggle the lyrics window from the renderer UI

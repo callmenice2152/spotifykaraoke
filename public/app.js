@@ -211,6 +211,18 @@ function setupEventListeners() {
   btnRefreshDevices.addEventListener('click', refreshActiveDevices);
   btnSneakToggle.addEventListener('click', toggleSneakMode);
   
+  // Translate Toggle
+  const btnTranslateToggle = document.getElementById('btnTranslateToggle');
+  if (btnTranslateToggle) {
+    updateTranslateBtnState();
+    btnTranslateToggle.addEventListener('click', () => {
+      translationEnabled = !translationEnabled;
+      localStorage.setItem('spotify_translation_enabled', translationEnabled);
+      updateTranslateBtnState();
+      renderLyrics();
+    });
+  }
+
   // Karaoke Toggle
   if (btnKaraokeToggle) {
     btnKaraokeToggle.addEventListener('click', toggleKaraoke);
@@ -804,6 +816,36 @@ function showNoLyricsPlaceholder() {
   }
 }
 
+let translationEnabled = localStorage.getItem('spotify_translation_enabled') !== 'false';
+
+function updateTranslateBtnState() {
+  const btnTranslateToggle = document.getElementById('btnTranslateToggle');
+  if (btnTranslateToggle) {
+    if (translationEnabled) {
+      btnTranslateToggle.classList.add('active');
+    } else {
+      btnTranslateToggle.classList.remove('active');
+    }
+  }
+}
+
+async function fetchLineTranslation(text) {
+  if (!text || !text.trim() || /[\u0E00-\u0E7F]/.test(text)) return '';
+  try {
+    if (window.require) {
+      const { ipcRenderer } = window.require('electron');
+      return await ipcRenderer.invoke('get-translation', text);
+    } else {
+      const res = await fetch(`/api/translate?text=${encodeURIComponent(text)}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.translation || '';
+      }
+    }
+  } catch (err) {}
+  return '';
+}
+
 function renderLyrics() {
   lyricsScrollBox.innerHTML = '';
   if (lyricsList.length === 0) {
@@ -815,14 +857,36 @@ function renderLyrics() {
     const el = document.createElement('div');
     el.className = 'lyric-line';
     el.id = `lyric-line-${index}`;
-    el.textContent = line.text || '🎵';
+
+    const origEl = document.createElement('div');
+    origEl.className = 'lyric-orig';
+    origEl.textContent = line.text || '🎵';
+    el.appendChild(origEl);
+
+    if (translationEnabled && line.text && !/[\u0E00-\u0E7F]/.test(line.text)) {
+      const transEl = document.createElement('div');
+      transEl.className = 'lyric-translation';
+      el.appendChild(transEl);
+
+      if (line.translation) {
+        transEl.textContent = line.translation;
+      } else {
+        fetchLineTranslation(line.text).then(trans => {
+          if (trans) {
+            line.translation = trans;
+            transEl.textContent = trans;
+          }
+        });
+      }
+    }
+
     lyricsScrollBox.appendChild(el);
   });
 }
 
 // Lead-time offset for karaoke anticipation (450ms pre-roll so text appears right before singer sings)
 const KARAOKE_LEAD_OFFSET = 450;
-let currentDisplayedLyric = '';
+let currentDisplayedLyric = null;
 
 // Real-Time Local Millisecond Lyrics Clock loop
 function startLocalLyricsClock() {
@@ -854,7 +918,8 @@ function startLocalLyricsClock() {
 
       // If current line has finished (age > 3600ms or > 70% of gap) and next line exists, pre-roll next sentence waiting on screen!
       if (age > 3600 && age > (gap * 0.7) && nextLine && nextLine.text) {
-        updateOverlayLyricText(nextLine.text);
+        const nextTrans = (translationEnabled && nextLine.translation) ? nextLine.translation : '';
+        updateOverlayLyricText(translationEnabled && nextTrans ? { original: nextLine.text, translation: nextTrans } : nextLine.text);
       } else {
         updateActiveLyricLine(activeIndex);
       }
@@ -879,10 +944,12 @@ function updateActiveLyricLine(activeIndex) {
   if (activeIndex !== lastActiveIndex) {
     lastActiveIndex = activeIndex;
     let activeText = lyricsList[activeIndex]?.text || '';
+    let activeTrans = lyricsList[activeIndex]?.translation || '';
     if (!activeText.trim()) {
       activeText = '♪ ... ♪';
     }
-    updateOverlayLyricText(activeText);
+    const payload = (translationEnabled && activeTrans) ? { original: activeText, translation: activeTrans } : activeText;
+    updateOverlayLyricText(payload);
   }
 }
 
