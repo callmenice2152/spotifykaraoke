@@ -68,7 +68,7 @@ function createLyricsWindow() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    resizable: true,
+    resizable: false,
     show: false,
     skipTaskbar: true,
     hasShadow: false,

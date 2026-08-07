@@ -28,13 +28,12 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 3px 14px;
+      padding: 3px 10px;
       border-radius: 4px;
       background: rgba(0, 0, 0, 0.45);
       backdrop-filter: blur(8px);
       transition: opacity 0.2s ease;
-      width: max-content;
-      max-width: none;
+      max-width: 110vw;
     }
     .lyric-text {
       font-size: 9px;
@@ -88,7 +87,7 @@
       function notifyResize() {
         requestAnimationFrame(() => {
           const rect = boxEl.getBoundingClientRect();
-          const w = Math.ceil(rect.width) + 12;
+          const w = Math.ceil(rect.width) + 6;
           const h = Math.ceil(rect.height) + 4;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
