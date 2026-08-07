@@ -407,7 +407,7 @@ function polishThaiTranslation(originalEng, rawThai) {
     text = text.replace(/ฉัน/gi, 'กู');
   } else {
     text = text.replace(/คุณ/gi, 'เธอ');
-    text = text.replace(/ฉัน/gi, 'กู');
+    text = text.replace(/กู/gi, 'ฉัน');
   }
 
   text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ');
