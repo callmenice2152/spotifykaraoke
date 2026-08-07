@@ -28,8 +28,8 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 5px 16px;
-      border-radius: 6px;
+      padding: 3px 10px;
+      border-radius: 4px;
       background: rgba(0, 0, 0, 0.65);
       backdrop-filter: blur(10px);
       transition: opacity 0.2s ease;
@@ -37,19 +37,19 @@
       width: max-content;
     }
     .lyric-text {
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 8.5px;
+      font-weight: 400;
       color: #ffffff;
       text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
       white-space: nowrap;
       letter-spacing: 0.2px;
     }
     .lyric-trans {
-      font-size: 10px;
-      font-weight: 400;
+      font-size: 7.5px;
+      font-weight: 300;
       color: #70e000;
       opacity: 0.95;
-      margin-top: 2px;
+      margin-top: 1px;
       font-style: normal;
       white-space: nowrap;
       letter-spacing: 0.1px;
@@ -89,9 +89,9 @@
         requestAnimationFrame(() => {
           const textW = textEl.scrollWidth || 0;
           const transW = transEl.classList.contains('hidden') ? 0 : (transEl.scrollWidth || 0);
-          const maxTextW = Math.max(textW, transW, 60);
-          const w = maxTextW + 36;
-          const h = (transEl.classList.contains('hidden') ? 22 : 40) + 10;
+          const maxTextW = Math.max(textW, transW, 50);
+          const w = maxTextW + 24;
+          const h = (transEl.classList.contains('hidden') ? 18 : 32) + 6;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
       }
