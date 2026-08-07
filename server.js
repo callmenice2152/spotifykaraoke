@@ -166,40 +166,50 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
   return bestScore >= 50 ? bestSong : null;
 }
 
-// Real Raw Street Translation Engine (Emo Rap / Hip-Hop Trained with มึง/มัน/กู)
+// Real Casual Human & Raw Hip-Hop Translation Engine
 function polishThaiTranslation(originalEng, rawThai) {
   if (!rawThai) return '';
   let orig = (originalEng || '').toLowerCase();
   let text = rawThai;
 
-  // Real Raw Street Context Rules
+  const isHipHop = orig.includes('nigga') || orig.includes('bitch') || orig.includes('shot') || orig.includes('snitched') || orig.includes('doubted') || orig.includes('money') || orig.includes('problems') || orig.includes('lawyers');
+
+  // Real Casual & Hip-Hop Context Rules
+  if (orig.includes('how much money you got') || orig.includes('how many problems you got')) {
+    text = text.replace(/คุณ/g, 'มึง').replace(/ฉัน/g, 'กู').replace(/มาก/g, 'โคตรเยอะ');
+  }
   if (orig.includes('put my heart in the bag') && orig.includes('nobody gets hurt')) {
-    return 'มันบอกให้กูเอาใจใส่กระเป๋าไว้ ถ้าไม่อยากเจ็บตัว';
+    return 'บอกให้เอาใจใส่กระเป๋าไว้ ถ้าไม่อยากเจ็บตัว';
   }
   if (orig.includes('running from her love') || orig.includes('i\'m a fugitive')) {
-    return 'ตอนนี้กูต้องวิ่งหนีรักของมึง กลายเป็นคนหลบหนีไปละ';
+    return 'ตอนนี้ต้องวิ่งหนีรักของเธอ กลายเป็นคนหลบหนีไปละ';
   }
   if (orig.includes('in my feelings')) {
-    return 'ตอนนี้กูโคตรดิ่งเลย รู้สึกโหว่ๆ ในใจ';
+    return 'ตอนนี้โคตรดิ่งเลย รู้สึกโหว่ๆ ในใจ';
   }
   if (orig.includes('feel a hole')) {
-    return 'ทำกูรู้สึกโหว่ๆ ในใจชิปหาย';
+    return 'รู้สึกโหว่ๆ ในใจชิปหาย';
   }
   if (orig.includes('pour a four')) {
     return 'เทยา/เหล้าผสมกินแม่มเลย';
   }
 
-  // Raw Street Pronoun & Phrasing Replacements (มึง / มัน / กู)
-  text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ ของมึง');
+  // Real Casual Word Replacement Cleaner
+  if (isHipHop) {
+    text = text.replace(/คุณ/gi, 'มึง');
+    text = text.replace(/ฉัน/gi, 'กู');
+  } else {
+    text = text.replace(/คุณ/gi, 'เธอ');
+    text = text.replace(/ฉัน/gi, 'กู');
+  }
+
+  text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ');
   text = text.replace(/คนที่ถูกตำหนิ/gi, 'ฝ่ายที่ผิดเอง');
   text = text.replace(/ฉันเดาว่า/gi, 'สงสัย');
   text = text.replace(/F\*ck คุณ|เย็ดคุณ|เย็ดมึง/gi, 'ค*ยเหอะ');
-  text = text.replace(/เด็กน้อย|ทารก/gi, 'มึง');
-  text = text.replace(/นกสองหัว|ยีนส์|ประเภทเมีย/gi, 'อีตัวดี');
+  text = text.replace(/เด็กน้อย|ทารก/gi, 'เธอ');
+  text = text.replace(/นกสองหัว|ยีนส์|ประเภทเมีย/gi, 'ยัยตัวดี');
   text = text.replace(/ผู้อพยพ|ผู้หลบหนี/gi, 'คนหลบหนี');
-  text = text.replace(/คุณ/gi, 'มึง');
-  text = text.replace(/เธอ/gi, 'มึง');
-  text = text.replace(/ฉัน/gi, 'กู');
   text = text.replace(/บอกลา/gi, 'บาย');
   text = text.replace(/หัวใจแตกสลาย/gi, 'อกหักว่ะ');
 
