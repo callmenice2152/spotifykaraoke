@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>Floating Lyrics Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <style>
     * {
       box-sizing: border-box;
@@ -12,13 +15,13 @@
     body {
       background: transparent;
       color: #ffffff;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Bai Jamjuree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       overflow: hidden;
       display: flex;
       justify-content: center;
       align-items: center;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       -webkit-app-region: drag;
       cursor: move;
       user-select: none;
@@ -28,12 +31,14 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      padding: 3px 10px;
+      padding: 3px 12px;
       border-radius: 4px;
       background: rgba(0, 0, 0, 0.45);
       backdrop-filter: blur(8px);
       transition: opacity 0.2s ease, background 0.2s ease;
-      max-width: 110vw;
+      width: max-content;
+      max-width: none;
+      flex-shrink: 0;
     }
     .lyric-box.no-bg {
       background: transparent !important;
@@ -125,8 +130,12 @@
 
       function notifyResize() {
         requestAnimationFrame(() => {
+          const textW = textEl ? textEl.scrollWidth : 0;
+          const transW = (!transEl.classList.contains('hidden') && transEl.textContent) ? transEl.scrollWidth : 0;
+          const contentW = Math.max(textW, transW);
           const rect = boxEl.getBoundingClientRect();
-          const w = Math.ceil(rect.width) + 6;
+          const measuredW = Math.max(rect.width, contentW + 24);
+          const w = Math.ceil(measuredW) + 8;
           const h = Math.ceil(rect.height) + 4;
           ipcRenderer.send('resize-lyrics-window', { width: w, height: h });
         });
@@ -198,6 +207,12 @@
         btnCloseLyrics.addEventListener('click', (e) => {
           e.stopPropagation();
           ipcRenderer.send('toggle-lyrics-view');
+        });
+      }
+
+      if (document.fonts) {
+        document.fonts.ready.then(() => {
+          notifyResize();
         });
       }
 

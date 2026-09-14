@@ -350,6 +350,7 @@ kbd {
   display: flex;
   flex-direction: column;
   transition: all 0.25s ease;
+  font-family: 'Bai Jamjuree', var(--font-sans);
 }
 
 .lyrics-container.collapsed {

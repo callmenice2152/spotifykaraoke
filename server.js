@@ -223,16 +223,7 @@ function polishThaiTranslation(originalEng, rawThai) {
 }
 
 const translationCache = {};
-
-function httpsGet(url, headers = {}) {
-  return new Promise((resolve) => {
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', ...headers } }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
-    }).on('error', () => resolve({ status: 500, body: '' }));
-  });
-}
+const inFlightTranslations = {};
 
 function decodeHtmlEntities(str) {
   if (!str) return '';
@@ -245,6 +236,20 @@ function decodeHtmlEntities(str) {
     .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
 }
 
+async function fetchFromGoogleClient(client, text) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=${client}&sl=auto&tl=th&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'Accept': '*/*'
+    },
+    signal: AbortSignal.timeout(3500)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data[0]?.map(item => item[0]).join('') || '';
+}
+
 async function translateTextBackend(text) {
   if (!text || !text.trim()) return '';
   const trimmed = text.trim();
@@ -255,70 +260,96 @@ async function translateTextBackend(text) {
   const normKey = cleanEng.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || cleanEng.toLowerCase().trim();
   if (normKey && translationCache[normKey]) return translationCache[normKey];
 
-  try {
-    const transPath = path.join(__dirname, 'local_translations.json');
-    if (fs.existsSync(transPath)) {
-      const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
-      for (const k of Object.keys(localTrans)) {
-        const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
-        if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
-          translationCache[normKey] = localTrans[k];
-          return localTrans[k];
+  if (normKey && inFlightTranslations[normKey]) {
+    return await inFlightTranslations[normKey];
+  }
+
+  const promise = (async () => {
+    // 0. Check local_translations.json
+    try {
+      const transPath = path.join(__dirname, 'local_translations.json');
+      if (fs.existsSync(transPath)) {
+        const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
+        for (const k of Object.keys(localTrans)) {
+          const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
+          if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
+            translationCache[normKey] = localTrans[k];
+            return localTrans[k];
+          }
         }
       }
-    }
-  } catch (err) {}
+    } catch (err) {}
 
-  // 1. Provider 1: Google Web Mobile (fast, unthrottled)
-  try {
-    const url1 = 'https://translate.google.com/m?sl=auto&tl=th&q=' + encodeURIComponent(cleanEng);
-    const res1 = await httpsGet(url1);
-    if (res1.status === 200) {
-      const match = res1.body.match(/class="result-container">([^<]+)/) || res1.body.match(/class="t0">([^<]+)/);
-      if (match && match[1]) {
-        const rawThai = decodeHtmlEntities(match[1].trim());
-        const polished = polishThaiTranslation(cleanEng, rawThai);
-        if (polished) {
-          translationCache[normKey] = polished;
-          return polished;
+    // 1. Google Translate API with Rotating Client Fallbacks (dict-chrome-ex, tw-ob, at, p, it, q, gtx)
+    const googleClients = ['dict-chrome-ex', 'tw-ob', 'at', 'p', 'it', 'q', 'gtx'];
+    for (const client of googleClients) {
+      try {
+        const rawThai = await fetchFromGoogleClient(client, cleanEng);
+        if (rawThai) {
+          const polished = polishThaiTranslation(cleanEng, rawThai);
+          if (polished) {
+            translationCache[normKey] = polished;
+            return polished;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Fallback: Google Mobile Web (follow redirects)
+    try {
+      const urlMob = 'https://translate.google.com/m?sl=auto&tl=th&q=' + encodeURIComponent(cleanEng);
+      const resMob = await fetch(urlMob, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(3500)
+      });
+      if (resMob.ok) {
+        const html = await resMob.text();
+        const match = html.match(/class="result-container">([^<]+)/) || html.match(/class="t0">([^<]+)/);
+        if (match && match[1]) {
+          const rawThai = decodeHtmlEntities(match[1].trim());
+          const polished = polishThaiTranslation(cleanEng, rawThai);
+          if (polished) {
+            translationCache[normKey] = polished;
+            return polished;
+          }
         }
       }
-    }
-  } catch (err) {}
+    } catch (e) {}
 
-  // 2. Provider 2: Google Translate GTX Endpoint
-  try {
-    const url2 = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
-    const res2 = await httpsGet(url2);
-    if (res2.status === 200) {
-      const data = JSON.parse(res2.body);
-      const rawThai = data[0]?.map(item => item[0]).join('') || '';
-      const polished = polishThaiTranslation(cleanEng, rawThai);
-      if (polished) {
-        translationCache[normKey] = polished;
-        return polished;
-      }
-    }
-  } catch (err) {}
-
-  // 3. Provider 3: MyMemory API (Reliable Fallback)
-  try {
-    const url3 = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(cleanEng) + '&langpair=en|th';
-    const res3 = await httpsGet(url3);
-    if (res3.status === 200) {
-      const data = JSON.parse(res3.body);
-      const rawThai = data?.responseData?.translatedText || '';
-      if (rawThai && !rawThai.includes('MYMEMORY WARNING')) {
-        const polished = polishThaiTranslation(cleanEng, decodeHtmlEntities(rawThai));
-        if (polished) {
-          translationCache[normKey] = polished;
-          return polished;
+    // 3. Fallback: MyMemory API
+    try {
+      const urlMem = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(cleanEng) + '&langpair=en|th';
+      const resMem = await fetch(urlMem, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (resMem.ok) {
+        const data = await resMem.json();
+        const rawThai = data?.responseData?.translatedText || '';
+        if (rawThai && !rawThai.includes('MYMEMORY WARNING') && !rawThai.includes('QUERY LENGTH LIMIT')) {
+          const polished = polishThaiTranslation(cleanEng, decodeHtmlEntities(rawThai));
+          if (polished) {
+            translationCache[normKey] = polished;
+            return polished;
+          }
         }
       }
-    }
-  } catch (err) {}
+    } catch (e) {}
 
-  return '';
+    return '';
+  })();
+
+  inFlightTranslations[normKey] = promise;
+  try {
+    const result = await promise;
+    return result;
+  } finally {
+    delete inFlightTranslations[normKey];
+  }
 }
 
 // Backend Lyrics Fetcher (LRCLIB + QQ Music)

@@ -210,18 +210,12 @@ function setupEventListeners() {
   btnSaveSettings.addEventListener('click', saveSettings);
   btnRefreshDevices.addEventListener('click', refreshActiveDevices);
   btnSneakToggle.addEventListener('click', toggleSneakMode);
-  
+
   // Translate Toggle
   const btnTranslateToggle = document.getElementById('btnTranslateToggle');
   if (btnTranslateToggle) {
     updateTranslateBtnState();
-    btnTranslateToggle.addEventListener('click', () => {
-      translationEnabled = !translationEnabled;
-      localStorage.setItem('spotify_translation_enabled', translationEnabled);
-      updateTranslateBtnState();
-      showToastNotification(translationEnabled ? '🇹🇭' : '⚪', translationEnabled ? 'เปิดคำแปลไทยแล้ว' : 'ปิดคำแปลไทยแล้ว');
-      renderLyrics();
-    });
+    btnTranslateToggle.addEventListener('click', toggleTranslation);
   }
 
   // Karaoke Toggle
@@ -243,6 +237,9 @@ function setupEventListeners() {
   if (window.require) {
     try {
       const { ipcRenderer } = window.require('electron');
+      ipcRenderer.on('toggle-translation-hotkey', () => {
+        toggleTranslation();
+      });
       ipcRenderer.on('lyrics-bg-changed', (event, isEnabled) => {
         showToastNotification(isEnabled ? '🖼️' : '⚪', isEnabled ? 'เปิดพื้นหลังเนื้อเพลงแล้ว' : 'ปิดพื้นหลังเนื้อเพลงแล้ว');
         const label = document.getElementById('lyricsBgBtnLabel');
@@ -324,6 +321,13 @@ function handleGlobalKeydown(e) {
   if (e.altKey && (e.key === 'k' || e.key === 'K' || e.key === 'l' || e.key === 'L' || e.key === '\\' || e.code === 'Backslash' || e.keyCode === 220 || e.key === '`' || e.code === 'Backquote' || e.key === 'F9')) {
     e.preventDefault();
     toggleKaraoke();
+    return;
+  }
+
+  // Alt+T -> Toggle Thai Translation
+  if (e.altKey && (e.key === 't' || e.key === 'T' || e.code === 'KeyT')) {
+    e.preventDefault();
+    toggleTranslation();
     return;
   }
 
@@ -872,6 +876,36 @@ function updateTranslateBtnState() {
   }
 }
 
+function toggleTranslation() {
+  translationEnabled = !translationEnabled;
+  localStorage.setItem('spotify_translation_enabled', translationEnabled);
+  updateTranslateBtnState();
+  showToastNotification(translationEnabled ? '🇹🇭' : '⚪', translationEnabled ? 'เปิดคำแปลไทยแล้ว (Alt+T)' : 'ปิดคำแปลไทยแล้ว (Alt+T)');
+  renderLyrics();
+  if (lyricsList.length > 0 && lastActiveIndex !== -1 && lyricsList[lastActiveIndex]) {
+    const line = lyricsList[lastActiveIndex];
+    const text = line.text || '';
+    if (text) {
+      if (translationEnabled) {
+        if (line.translation) {
+          updateOverlayLyricText({ original: text, translation: line.translation });
+        } else if (!/[\u0E00-\u0E7F]/.test(text)) {
+          fetchLineTranslation(text).then(trans => {
+            if (trans) line.translation = trans;
+            if (translationEnabled && lastActiveIndex !== -1 && lyricsList[lastActiveIndex] === line) {
+              updateOverlayLyricText(trans ? { original: text, translation: trans } : text);
+            }
+          });
+        } else {
+          updateOverlayLyricText(text);
+        }
+      } else {
+        updateOverlayLyricText(text);
+      }
+    }
+  }
+}
+
 async function fetchLineTranslation(text) {
   if (!text || !text.trim() || /[\u0E00-\u0E7F]/.test(text)) return '';
   try {
@@ -911,12 +945,19 @@ function renderLyrics() {
       transEl.className = 'lyric-translation';
       el.appendChild(transEl);
 
-      fetchLineTranslation(line.text).then(trans => {
-        if (trans) {
-          line.translation = trans;
-          transEl.textContent = trans;
-        }
-      });
+      if (line.translation) {
+        transEl.textContent = line.translation;
+      } else {
+        setTimeout(() => {
+          if (!translationEnabled) return;
+          fetchLineTranslation(line.text).then(trans => {
+            if (trans) {
+              line.translation = trans;
+              transEl.textContent = trans;
+            }
+          });
+        }, index * 40);
+      }
     }
 
     lyricsScrollBox.appendChild(el);
@@ -926,10 +967,12 @@ function renderLyrics() {
 // Lead-time offset for karaoke anticipation (450ms pre-roll so text appears right before singer sings)
 const KARAOKE_LEAD_OFFSET = 450;
 let currentDisplayedLyric = null;
+let lastPreRollIndex = -1;
 
 // Real-Time Local Millisecond Lyrics Clock loop
 function startLocalLyricsClock() {
   if (lyricsSyncTimer) clearInterval(lyricsSyncTimer);
+  lastPreRollIndex = -1;
   lyricsSyncTimer = setInterval(() => {
     if (!isPlaying || lyricsList.length === 0) return;
 
@@ -957,15 +1000,23 @@ function startLocalLyricsClock() {
 
       // If current line has finished (age > 3600ms or > 70% of gap) and next line exists, pre-roll next sentence waiting on screen!
       if (age > 3600 && age > (gap * 0.7) && nextLine && nextLine.text) {
-        if (translationEnabled && nextLine.text && !/[\u0E00-\u0E7F]/.test(nextLine.text)) {
-          fetchLineTranslation(nextLine.text).then(nextTrans => {
-            if (nextTrans) nextLine.translation = nextTrans;
-            updateOverlayLyricText(nextTrans ? { original: nextLine.text, translation: nextTrans } : nextLine.text);
-          });
-        } else {
-          updateOverlayLyricText(nextLine.text);
+        if (lastPreRollIndex !== activeIndex + 1) {
+          lastPreRollIndex = activeIndex + 1;
+          if (translationEnabled && nextLine.text && !/[\u0E00-\u0E7F]/.test(nextLine.text)) {
+            if (nextLine.translation) {
+              updateOverlayLyricText({ original: nextLine.text, translation: nextLine.translation });
+            } else {
+              fetchLineTranslation(nextLine.text).then(nextTrans => {
+                if (nextTrans) nextLine.translation = nextTrans;
+                updateOverlayLyricText(nextTrans ? { original: nextLine.text, translation: nextTrans } : nextLine.text);
+              });
+            }
+          } else {
+            updateOverlayLyricText(nextLine.text);
+          }
         }
       } else {
+        lastPreRollIndex = -1;
         updateActiveLyricLine(activeIndex);
       }
     }
@@ -993,11 +1044,15 @@ function updateActiveLyricLine(activeIndex) {
     if (!activeText.trim()) activeText = '♪ ... ♪';
 
     if (translationEnabled && activeText && !/[\u0E00-\u0E7F]/.test(activeText)) {
-      fetchLineTranslation(activeText).then(trans => {
-        if (trans) line.translation = trans;
-        const payload = trans ? { original: activeText, translation: trans } : activeText;
-        updateOverlayLyricText(payload);
-      });
+      if (line && line.translation) {
+        updateOverlayLyricText({ original: activeText, translation: line.translation });
+      } else {
+        fetchLineTranslation(activeText).then(trans => {
+          if (trans && line) line.translation = trans;
+          const payload = trans ? { original: activeText, translation: trans } : activeText;
+          updateOverlayLyricText(payload);
+        });
+      }
     } else {
       updateOverlayLyricText(activeText);
     }

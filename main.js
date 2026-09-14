@@ -1,9 +1,9 @@
-const { app, BrowserWindow, globalShortcut, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, globalShortcut, Tray, Menu, nativeImage, shell, ipcMain, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { spawn } = require('child_process');
-const { app: expressApp } = require('./server');
+const { app: expressApp, translateTextBackend } = require('./server');
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -96,17 +96,31 @@ function createWindow() {
 }
 
 const LYRICS_POS_FILE = path.join(__dirname, 'lyrics_position.json');
+let userCustomCenterX = null;
+let isProgrammaticResize = false;
+
+// Get Work Area in Electron DIP coordinates
+function getWorkArea() {
+  try {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    return primaryDisplay.workArea || { x: 0, y: 0, width: 1536, height: 960 };
+  } catch (err) {
+    return { x: 0, y: 0, width: 1536, height: 960 };
+  }
+}
+
+// Calculate default Bottom-Center position dynamically based on display work area
+function getDefaultLyricsPosition(windowWidth = 240, windowHeight = 32) {
+  const workArea = getWorkArea();
+  const screenCenterX = Math.round(workArea.x + workArea.width / 2);
+  const x = Math.round(screenCenterX - windowWidth / 2);
+  // Position ~75px above bottom edge of work area (comfortably above taskbar)
+  const y = Math.max(50, Math.round(workArea.y + workArea.height - 75));
+  return { x, y };
+}
 
 function loadLyricsPosition() {
-  try {
-    if (fs.existsSync(LYRICS_POS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(LYRICS_POS_FILE, 'utf8'));
-      if (typeof data.x === 'number' && typeof data.y === 'number') {
-        return { x: data.x, y: data.y };
-      }
-    }
-  } catch (err) {}
-  return null;
+  return getDefaultLyricsPosition();
 }
 
 function saveLyricsPosition(x, y) {
@@ -123,11 +137,15 @@ function createLyricsWindow() {
     return lyricsWindow;
   }
 
-  const savedPos = loadLyricsPosition();
+  userCustomCenterX = null;
+  // Always initialize at the exact Bottom-Center default position on launch
+  const defaultPos = getDefaultLyricsPosition(240, 32);
 
   const windowOpts = {
-    width: 200,
-    height: 24,
+    width: 240,
+    height: 32,
+    x: defaultPos.x,
+    y: defaultPos.y,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -142,11 +160,6 @@ function createLyricsWindow() {
     }
   };
 
-  if (savedPos) {
-    windowOpts.x = savedPos.x;
-    windowOpts.y = savedPos.y;
-  }
-
   lyricsWindow = new BrowserWindow(windowOpts);
 
   // Load the lyrics page
@@ -154,30 +167,36 @@ function createLyricsWindow() {
 
   // Auto-show on launch once ready
   lyricsWindow.once('ready-to-show', () => {
+    lyricsWindow.setPosition(defaultPos.x, defaultPos.y);
     lyricsWindow.show();
-    if (savedPos) {
-      lyricsWindow.setPosition(savedPos.x, savedPos.y);
-    }
     lyricsWindow.webContents.send('toggle-lyrics-bg', lyricsBgEnabled);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('lyrics-visibility-changed', true);
     }
+    saveLyricsPosition(defaultPos.x, defaultPos.y);
   });
 
   // Automatically remember position whenever moved/dragged on screen
   let moveTimeout = null;
   lyricsWindow.on('moved', () => {
+    if (isProgrammaticResize) return;
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
       const [x, y] = lyricsWindow.getPosition();
+      const [w] = lyricsWindow.getSize();
+      userCustomCenterX = Math.round(x + w / 2);
       saveLyricsPosition(x, y);
     }
   });
 
   lyricsWindow.on('move', () => {
+    if (isProgrammaticResize) return;
     clearTimeout(moveTimeout);
     moveTimeout = setTimeout(() => {
+      if (isProgrammaticResize) return;
       if (lyricsWindow && !lyricsWindow.isDestroyed()) {
         const [x, y] = lyricsWindow.getPosition();
+        const [w] = lyricsWindow.getSize();
+        userCustomCenterX = Math.round(x + w / 2);
         saveLyricsPosition(x, y);
       }
     }, 200);
@@ -250,12 +269,29 @@ ipcMain.on('sync-sneak-mode', (event, isSneak) => {
   }
 });
 
-// IPC Listener to dynamically resize lyricsWindow to fit exact text dimensions
+// IPC Listener to dynamically resize lyricsWindow to fit exact text dimensions while keeping horizontal center locked
 ipcMain.on('resize-lyrics-window', (event, { width, height }) => {
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-    const w = Math.max(60, Math.ceil(width));
-    const h = Math.max(18, Math.ceil(height));
-    lyricsWindow.setSize(w, h, false);
+    try {
+      const workArea = getWorkArea();
+      const maxW = Math.max(300, workArea.width - 40);
+      const w = Math.min(maxW, Math.max(60, Math.ceil(width)));
+      const h = Math.max(18, Math.ceil(height));
+      const screenCenterX = Math.round(workArea.x + workArea.width / 2);
+      const targetCenter = userCustomCenterX !== null ? userCustomCenterX : screenCenterX;
+      let newX = Math.round(targetCenter - w / 2);
+
+      // Clamp horizontally so window remains fully inside work area
+      if (newX < workArea.x + 10) newX = workArea.x + 10;
+      if (newX + w > workArea.x + workArea.width - 10) newX = workArea.x + workArea.width - 10 - w;
+
+      const [, currentY] = lyricsWindow.getPosition();
+      isProgrammaticResize = true;
+      lyricsWindow.setBounds({ x: newX, y: currentY, width: w, height: h });
+      setTimeout(() => { isProgrammaticResize = false; }, 80);
+    } catch (e) {
+      lyricsWindow.setSize(Math.ceil(width), Math.ceil(height), false);
+    }
   }
 });
 
@@ -569,142 +605,6 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   return null;
 }
 
-// Systemic Dynamic Thai Lyric Polisher (Auto-fixes machine translation glitches for ALL songs)
-function polishThaiTranslation(originalEng, rawThai) {
-  if (!rawThai) return '';
-  let orig = (originalEng || '').toLowerCase();
-  let text = rawThai;
-
-  const isHipHop = orig.includes('nigga') || orig.includes('bitch') || orig.includes('shot') || orig.includes('snitched') || orig.includes('doubted') || orig.includes('money') || orig.includes('problems') || orig.includes('lawyers');
-
-  // Fix common Google Translate machine glitches across ALL songs automatically
-  text = text.replace(/ขอบคุณนะ ต่อไป|ขอบคุณนะ ถัดไป|ขอบเธอ ต่อไป|ขอบเธอ ถัดไป|ขอบใจนะ ต่อไป|ขอบใจนะ ถัดไป/gi, 'ขอบคุณนะ... คนต่อไป!');
-  text = text.replace(/ขอบเธอ|ขอบคุณ u|ขอบใจ u/gi, 'ขอบคุณนะ');
-  text = text.replace(/ถัดไป/gi, 'คนต่อไป');
-  text = text.replace(/ผีของคุณ|ผีเธอ/gi, 'ภาพทรงจำเก่าๆ');
-  text = text.replace(/คนที่ถูกตำหนิ/gi, 'ฝ่ายที่ผิดเอง');
-  text = text.replace(/ฉันเดาว่า/gi, 'สงสัย');
-  text = text.replace(/F\*ck คุณ|เย็ดคุณ|เย็ดมึง/gi, 'ค*ยเหอะ');
-  text = text.replace(/เด็กน้อย|ทารก/gi, 'เธอ');
-  text = text.replace(/นกสองหัว|ยีนส์|ประเภทเมีย/gi, 'ยัยตัวดี');
-  text = text.replace(/ผู้อพยพ|ผู้หลบหนี/gi, 'คนหลบหนี');
-  text = text.replace(/กะเทย|กระเทย/gi, 'พวกมัน');
-  text = text.replace(/ตรงไป/gi, 'พูดจริงไม่ได้อำ');
-  text = text.replace(/หัวใจแตกสลาย/gi, 'อกหักว่ะ');
-
-  // Genre-based pronoun handling
-  if (isHipHop) {
-    text = text.replace(/คุณ/gi, 'มึง');
-    text = text.replace(/ฉัน/gi, 'กู');
-  } else {
-    text = text.replace(/คุณ/gi, 'เธอ');
-    text = text.replace(/กู/gi, 'ฉัน');
-  }
-
-  return text.trim();
-}
-
-const translationCache = {};
-
-function httpsGet(url, headers = {}) {
-  return new Promise((resolve) => {
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', ...headers } }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
-    }).on('error', () => resolve({ status: 500, body: '' }));
-  });
-}
-
-function decodeHtmlEntities(str) {
-  if (!str) return '';
-  return str
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
-}
-
-async function translateTextBackend(text) {
-  if (!text || !text.trim()) return '';
-  const trimmed = text.trim();
-
-  // Don't translate if already Thai text
-  if (/[\u0E00-\u0E7F]/.test(trimmed)) return '';
-
-  // Strip parenthetical ad-libs (e.g. '(Next)', '(Yeah)') for clean matching
-  const cleanEng = trimmed.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').trim() || trimmed;
-  const normKey = cleanEng.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || cleanEng.toLowerCase().trim();
-  if (normKey && translationCache[normKey]) return translationCache[normKey];
-
-  // 1. Check local_translations.json
-  try {
-    const transPath = path.join(__dirname, 'local_translations.json');
-    if (fs.existsSync(transPath)) {
-      const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
-      for (const k of Object.keys(localTrans)) {
-        const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
-        if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
-          translationCache[normKey] = localTrans[k];
-          return localTrans[k];
-        }
-      }
-    }
-  } catch (err) {}
-
-  // 2. Provider 1: Google Web Mobile (fast, unthrottled)
-  try {
-    const url1 = 'https://translate.google.com/m?sl=auto&tl=th&q=' + encodeURIComponent(cleanEng);
-    const res1 = await httpsGet(url1);
-    if (res1.status === 200) {
-      const match = res1.body.match(/class="result-container">([^<]+)/) || res1.body.match(/class="t0">([^<]+)/);
-      if (match && match[1]) {
-        const rawThai = decodeHtmlEntities(match[1].trim());
-        const polished = polishThaiTranslation(cleanEng, rawThai);
-        if (polished) {
-          translationCache[normKey] = polished;
-          return polished;
-        }
-      }
-    }
-  } catch (err) {}
-
-  // 3. Provider 2: Google Translate GTX Endpoint
-  try {
-    const url2 = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
-    const res2 = await httpsGet(url2);
-    if (res2.status === 200) {
-      const data = JSON.parse(res2.body);
-      const rawThai = data[0]?.map(item => item[0]).join('') || '';
-      const polished = polishThaiTranslation(cleanEng, rawThai);
-      if (polished) {
-        translationCache[normKey] = polished;
-        return polished;
-      }
-    }
-  } catch (err) {}
-
-  // 4. Provider 3: MyMemory API (Reliable Fallback)
-  try {
-    const url3 = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(cleanEng) + '&langpair=en|th';
-    const res3 = await httpsGet(url3);
-    if (res3.status === 200) {
-      const data = JSON.parse(res3.body);
-      const rawThai = data?.responseData?.translatedText || '';
-      if (rawThai && !rawThai.includes('MYMEMORY WARNING')) {
-        const polished = polishThaiTranslation(cleanEng, decodeHtmlEntities(rawThai));
-        if (polished) {
-          translationCache[normKey] = polished;
-          return polished;
-        }
-      }
-    }
-  } catch (err) {}
-
-  return '';
-}
 
 // IPC Handle for Lyrics Fetching directly from Electron Main Node Process
 ipcMain.handle('get-lyrics', async (event, { track, artist, duration }) => {
@@ -803,6 +703,19 @@ app.whenReady().then(() => {
       console.log('Shortcut [Alt+B] registered:', bgOk);
     } catch (err) {
       console.error('Shortcut [Alt+B] registration error:', err.message);
+    }
+
+    // Register Global Hotkey for Translation Toggle (Alt+T)
+    try {
+      const transOk = globalShortcut.register('Alt+T', () => {
+        console.log('[Translation Hotkey] Triggered via Alt+T');
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('toggle-translation-hotkey');
+        }
+      });
+      console.log('Shortcut [Alt+T] registered:', transOk);
+    } catch (err) {
+      console.error('Shortcut [Alt+T] registration error:', err.message);
     }
   } catch (err) {
     console.error('Shortcut registration error:', err);
