@@ -85,10 +85,33 @@
       color: #7ee787;
       text-shadow: none;
     }
+    .close-btn {
+      display: none;
+      position: absolute;
+      top: -2px;
+      right: 2px;
+      cursor: pointer;
+      font-size: 10px;
+      line-height: 1;
+      color: rgba(255, 255, 255, 0.7);
+      padding: 2px 4px;
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.6);
+      -webkit-app-region: no-drag;
+      z-index: 99;
+    }
+    .close-btn:hover {
+      color: #ff5555;
+      background: rgba(0, 0, 0, 0.9);
+    }
+    .lyric-box:hover .close-btn {
+      display: block;
+    }
   </style>
 </head>
 <body>
   <div class="lyric-box no-bg" id="lyricBox">
+    <div class="close-btn" id="btnCloseLyrics" title="ปิด/ซ่อนแถบเนื้อเพลง (Alt+\ หรือ Alt+K)">✕</div>
     <div class="lyric-text" id="lyricText">Waiting for music...</div>
     <div class="lyric-trans hidden" id="lyricTrans"></div>
   </div>
@@ -160,6 +183,23 @@
         e.preventDefault();
         ipcRenderer.send('toggle-lyrics-bg');
       });
+
+      // Middle-click (scroll wheel click) hides/closes the lyrics bar immediately
+      boxEl.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          ipcRenderer.send('toggle-lyrics-view');
+        }
+      });
+
+      // Close '✕' button click hides lyrics bar
+      const btnCloseLyrics = document.getElementById('btnCloseLyrics');
+      if (btnCloseLyrics) {
+        btnCloseLyrics.addEventListener('click', (e) => {
+          e.stopPropagation();
+          ipcRenderer.send('toggle-lyrics-view');
+        });
+      }
 
       notifyResize();
     } catch (err) {

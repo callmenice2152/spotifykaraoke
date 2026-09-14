@@ -5,10 +5,28 @@ const https = require('https');
 const { spawn } = require('child_process');
 const { app: expressApp } = require('./server');
 
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[App] Another instance is already running. Quitting duplicate.');
+  app.quit();
+  process.exit(0);
+}
+
 let mainWindow = null;
 let lyricsWindow = null;
 let tray = null;
 let serverProcess = null;
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+    lyricsWindow.show();
+  }
+});
 
 // Start Express Server
 function startServer() {
@@ -30,6 +48,11 @@ function startServer() {
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
   mainWindow = new BrowserWindow({
     width: 480,
     height: 220, // Default compact height matching design!
@@ -95,6 +118,11 @@ function saveLyricsPosition(x, y) {
 
 // Create Floating Transparent Lyrics Window
 function createLyricsWindow() {
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+    lyricsWindow.show();
+    return lyricsWindow;
+  }
+
   const savedPos = loadLyricsPosition();
 
   const windowOpts = {
@@ -131,6 +159,9 @@ function createLyricsWindow() {
       lyricsWindow.setPosition(savedPos.x, savedPos.y);
     }
     lyricsWindow.webContents.send('toggle-lyrics-bg', lyricsBgEnabled);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('lyrics-visibility-changed', true);
+    }
   });
 
   // Automatically remember position whenever moved/dragged on screen
@@ -156,6 +187,9 @@ function createLyricsWindow() {
     if (!app.isQuitting) {
       event.preventDefault();
       lyricsWindow.hide();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('lyrics-visibility-changed', false);
+      }
     }
   });
 }
@@ -172,13 +206,25 @@ function toggleWindow() {
 
 function toggleLyricsWindow() {
   if (!lyricsWindow || lyricsWindow.isDestroyed()) {
+    console.log('[Lyrics Window] Creating window from toggleLyricsWindow');
     createLyricsWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('lyrics-visibility-changed', true);
+    }
     return;
   }
-  if (lyricsWindow.isVisible()) {
+  const isVis = lyricsWindow.isVisible();
+  console.log(`[Lyrics Window] Current visibility: ${isVis}, toggling to: ${!isVis}`);
+  if (isVis) {
     lyricsWindow.hide();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('lyrics-visibility-changed', false);
+    }
   } else {
     lyricsWindow.show();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('lyrics-visibility-changed', true);
+    }
   }
 }
 
@@ -728,11 +774,23 @@ app.whenReady().then(() => {
     });
 
     // Register Hotkeys for Lyrics Toggle
-    const toggleLyrics = () => toggleLyricsWindow();
-    const shortcuts = ['Alt+\\', 'Alt+K', 'Alt+L', 'Ctrl+Shift+L', 'Alt+F9'];
+    const toggleLyrics = (keyName) => {
+      console.log(`[Lyrics Hotkey] Triggered via ${keyName} at ${new Date().toLocaleTimeString()}`);
+      toggleLyricsWindow();
+    };
+
+    const shortcuts = [
+      'Alt+\\',
+      'Alt+K',
+      'Alt+L',
+      'Alt+Shift+L',
+      'Ctrl+Shift+L',
+      'Alt+F9',
+      'Alt+`'
+    ];
     shortcuts.forEach(sc => {
       try {
-        const ok = globalShortcut.register(sc, toggleLyrics);
+        const ok = globalShortcut.register(sc, () => toggleLyrics(sc));
         console.log(`Shortcut [${sc}] registered:`, ok);
       } catch (err) {
         console.error(`Shortcut [${sc}] registration error:`, err.message);

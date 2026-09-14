@@ -248,6 +248,16 @@ function setupEventListeners() {
         const label = document.getElementById('lyricsBgBtnLabel');
         if (label) label.textContent = isEnabled ? 'BG เปิด' : 'BG';
       });
+      ipcRenderer.on('lyrics-visibility-changed', (event, isVisible) => {
+        isKaraokeActive = isVisible;
+        if (btnKaraokeToggle) {
+          if (isVisible) {
+            btnKaraokeToggle.classList.add('active');
+          } else {
+            btnKaraokeToggle.classList.remove('active');
+          }
+        }
+      });
     } catch (e) {}
   }
 
@@ -310,8 +320,8 @@ function handleGlobalKeydown(e) {
     return;
   }
 
-  // Alt+K or Alt+\ -> Toggle Karaoke Lyrics
-  if (e.altKey && (e.key === 'k' || e.key === 'K' || e.key === '\\' || e.code === 'Backslash' || e.keyCode === 220)) {
+  // Alt+K, Alt+\, Alt+L, Alt+`, Alt+F9 -> Toggle Karaoke Lyrics
+  if (e.altKey && (e.key === 'k' || e.key === 'K' || e.key === 'l' || e.key === 'L' || e.key === '\\' || e.code === 'Backslash' || e.keyCode === 220 || e.key === '`' || e.code === 'Backquote' || e.key === 'F9')) {
     e.preventDefault();
     toggleKaraoke();
     return;
