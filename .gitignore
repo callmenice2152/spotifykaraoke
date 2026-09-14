@@ -6,3 +6,6 @@ Spotify-Karaoke-Windows.zip
 *.log
 .env
 .DS_Store
+pkce_temp.json
+lyrics_position.json
+queued_history.json

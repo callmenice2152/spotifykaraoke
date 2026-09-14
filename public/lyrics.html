@@ -32,8 +32,14 @@
       border-radius: 4px;
       background: rgba(0, 0, 0, 0.45);
       backdrop-filter: blur(8px);
-      transition: opacity 0.2s ease;
+      transition: opacity 0.2s ease, background 0.2s ease;
       max-width: 110vw;
+    }
+    .lyric-box.no-bg {
+      background: transparent !important;
+      backdrop-filter: none !important;
+      border: none !important;
+      box-shadow: none !important;
     }
     .lyric-text {
       font-size: 9px;
@@ -43,15 +49,21 @@
       white-space: nowrap;
       letter-spacing: 0.2px;
     }
+    .lyric-box.no-bg .lyric-text {
+      text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.95), 0px 0px 2px rgba(0, 0, 0, 0.9);
+    }
     .lyric-trans {
       font-size: 8px;
       font-weight: 300;
-      color: #70e000;
+      color: #ffffff;
       opacity: 0.9;
       margin-top: 1px;
       font-style: normal;
       white-space: nowrap;
       letter-spacing: 0.1px;
+    }
+    .lyric-box.no-bg .lyric-trans {
+      text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.95), 0px 0px 2px rgba(0, 0, 0, 0.9);
     }
     .hidden {
       display: none !important;
@@ -60,6 +72,10 @@
       font-family: Consolas, monospace;
       background: rgba(13, 17, 23, 0.85);
       border: 1px solid #30363d;
+    }
+    body.sneak-mode .lyric-box.no-bg {
+      background: transparent !important;
+      border: none !important;
     }
     body.sneak-mode .lyric-text {
       color: #58a6ff;
@@ -72,7 +88,7 @@
   </style>
 </head>
 <body>
-  <div class="lyric-box" id="lyricBox">
+  <div class="lyric-box no-bg" id="lyricBox">
     <div class="lyric-text" id="lyricText">Waiting for music...</div>
     <div class="lyric-trans hidden" id="lyricTrans"></div>
   </div>
@@ -116,6 +132,33 @@
           document.body.classList.remove('sneak-mode');
         }
         notifyResize();
+      });
+
+      function toggleBackground(isEnabled) {
+        if (typeof isEnabled === 'boolean') {
+          if (isEnabled) {
+            boxEl.classList.remove('no-bg');
+          } else {
+            boxEl.classList.add('no-bg');
+          }
+        } else {
+          boxEl.classList.toggle('no-bg');
+        }
+        notifyResize();
+      }
+
+      ipcRenderer.on('toggle-lyrics-bg', (event, isEnabled) => {
+        toggleBackground(isEnabled);
+      });
+
+      boxEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        ipcRenderer.send('toggle-lyrics-bg');
+      });
+
+      boxEl.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        ipcRenderer.send('toggle-lyrics-bg');
       });
 
       notifyResize();

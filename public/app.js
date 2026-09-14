@@ -219,6 +219,7 @@ function setupEventListeners() {
       translationEnabled = !translationEnabled;
       localStorage.setItem('spotify_translation_enabled', translationEnabled);
       updateTranslateBtnState();
+      showToastNotification(translationEnabled ? '🇹🇭' : '⚪', translationEnabled ? 'เปิดคำแปลไทยแล้ว' : 'ปิดคำแปลไทยแล้ว');
       renderLyrics();
     });
   }
@@ -226,6 +227,28 @@ function setupEventListeners() {
   // Karaoke Toggle
   if (btnKaraokeToggle) {
     btnKaraokeToggle.addEventListener('click', toggleKaraoke);
+  }
+
+  // Lyrics Background Toggle
+  const btnLyricsBgToggle = document.getElementById('btnLyricsBgToggle');
+  if (btnLyricsBgToggle) {
+    btnLyricsBgToggle.addEventListener('click', () => {
+      if (window.require) {
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('toggle-lyrics-bg');
+      }
+    });
+  }
+
+  if (window.require) {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.on('lyrics-bg-changed', (event, isEnabled) => {
+        showToastNotification(isEnabled ? '🖼️' : '⚪', isEnabled ? 'เปิดพื้นหลังเนื้อเพลงแล้ว' : 'ปิดพื้นหลังเนื้อเพลงแล้ว');
+        const label = document.getElementById('lyricsBgBtnLabel');
+        if (label) label.textContent = isEnabled ? 'BG เปิด' : 'BG';
+      });
+    } catch (e) {}
   }
 
   // Minimize (Hide to Tray)
@@ -287,8 +310,8 @@ function handleGlobalKeydown(e) {
     return;
   }
 
-  // Alt+K -> Toggle Karaoke Lyrics
-  if (e.altKey && (e.key === 'k' || e.key === 'K')) {
+  // Alt+K or Alt+\ -> Toggle Karaoke Lyrics
+  if (e.altKey && (e.key === 'k' || e.key === 'K' || e.key === '\\' || e.code === 'Backslash' || e.keyCode === 220)) {
     e.preventDefault();
     toggleKaraoke();
     return;
@@ -571,7 +594,14 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
   }
 
   if (res.status === 204) return true;
-  return res.ok ? await res.json() : null;
+  if (!res.ok) return null;
+  const textStr = await res.text();
+  if (!textStr || !textStr.trim()) return true;
+  try {
+    return JSON.parse(textStr);
+  } catch (err) {
+    return true;
+  }
 }
 
 // Perform Multi-Category Search (Tracks, Artists, Playlists)
@@ -727,7 +757,7 @@ async function refreshActiveDevices() {
 }
 
 // Fetch synced lyrics (Direct IPC from Electron Main Process for 100% Zero-Latency & Zero-CORS Reliability)
-async function fetchSyncedLyrics(trackName, artistName, trackId) {
+async function fetchSyncedLyrics(trackName, artistName, trackId, durationSec = null) {
   lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">Loading lyrics...</div>';
   lyricsList = [];
   lastActiveIndex = -1;
@@ -736,7 +766,7 @@ async function fetchSyncedLyrics(trackName, artistName, trackId) {
   try {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      const lyrics = await ipcRenderer.invoke('get-lyrics', { track: trackName, artist: artistName });
+      const lyrics = await ipcRenderer.invoke('get-lyrics', { track: trackName, artist: artistName, duration: durationSec });
       if (lyrics) {
         parseLrcLines(lyrics);
         renderLyrics();
@@ -749,7 +779,7 @@ async function fetchSyncedLyrics(trackName, artistName, trackId) {
 
   // 2. HTTP Fallback
   try {
-    const url = `/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artistName)}`;
+    const url = `/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artistName)}${durationSec ? `&duration=${encodeURIComponent(durationSec)}` : ''}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -820,11 +850,14 @@ let translationEnabled = localStorage.getItem('spotify_translation_enabled') !==
 
 function updateTranslateBtnState() {
   const btnTranslateToggle = document.getElementById('btnTranslateToggle');
+  const translateBtnLabel = document.getElementById('translateBtnLabel');
   if (btnTranslateToggle) {
     if (translationEnabled) {
       btnTranslateToggle.classList.add('active');
+      if (translateBtnLabel) translateBtnLabel.textContent = 'แปลไทย';
     } else {
       btnTranslateToggle.classList.remove('active');
+      if (translateBtnLabel) translateBtnLabel.textContent = 'ปิดแปล';
     }
   }
 }
@@ -962,8 +995,9 @@ function updateActiveLyricLine(activeIndex) {
 }
 
 function updateOverlayLyricText(text) {
-  if (currentDisplayedLyric !== text) {
-    currentDisplayedLyric = text;
+  const serialized = typeof text === 'object' ? JSON.stringify(text) : String(text);
+  if (currentDisplayedLyric !== serialized) {
+    currentDisplayedLyric = serialized;
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-lyric-text', text);
@@ -1001,7 +1035,8 @@ async function fetchCurrentlyPlaying() {
     // Fetch lyrics dynamically ONLY when track ID actually changes
     if (data.item.id !== currentTrackId) {
       currentTrackId = data.item.id;
-      fetchSyncedLyrics(data.item.name, data.item.artists[0].name, data.item.id);
+      const durSec = data.item.duration_ms ? data.item.duration_ms / 1000 : null;
+      fetchSyncedLyrics(data.item.name, data.item.artists[0].name, data.item.id, durSec);
     }
 
     // Play/Pause SVG update
@@ -1083,3 +1118,14 @@ function showToastNotification(icon, msg) {
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+// Single Key Shortcut (\ or ฃ key) to toggle floating lyrics window
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (e.key === '\\' || e.key === 'ฃ' || e.code === 'Backslash') {
+    if (window.require) {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('toggle-lyrics');
+    }
+  }
+});

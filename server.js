@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -119,24 +120,25 @@ function parseAndMergeLrc(rawLrc) {
   }).join('\n');
 }
 
-function pickBestSongMatch(songs, targetTrack, targetArtist) {
+function pickBestSongMatch(songs, targetTrack, targetArtist, targetDurationSec = null) {
   if (!songs || songs.length === 0) return null;
   const norm = str => (str || '').toLowerCase().replace(/\s+/g, '').replace(/[^\w\u0E00-\u0E7F]/g, '');
   const targetNorm = norm(targetTrack);
   const cleanTrackNorm = norm(targetTrack.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/-.*/g, '').trim());
   const artistNorm = norm(targetArtist);
-  const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
+  const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver') || targetNorm.includes('edit');
 
   let bestSong = null;
   let bestScore = -999;
 
   for (let song of songs) {
+    if (!song.syncedLyrics && !song.lyric && !song.fyc) continue;
     const songTitle = song.trackName || song.songtitle || song.songname || '';
     const songNorm = norm(songTitle);
     const singerList = Array.isArray(song.singer)
       ? song.singer.map(s => norm(s.name || '')).join('')
       : norm(song.artistName || '');
-    const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
+    const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver') || songNorm.includes('edit');
 
     let score = 0;
     if (songNorm === targetNorm) {
@@ -156,7 +158,26 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
       score -= 40;
     }
 
+    if (isTargetRemix && isSongRemix) score += 30;
     if (!isTargetRemix && isSongRemix) score -= 30;
+
+    // Penalty for Music Video versions if target is not MV
+    if (!targetNorm.includes('video') && !targetNorm.includes('mv') && (songNorm.includes('officialvideo') || songNorm.includes('musicvideo') || songNorm.includes('video') || songNorm.includes('mv'))) {
+      score -= 40;
+    }
+
+    // Duration matching bonus & penalty
+    const songDurationSec = song.duration || song.interval;
+    if (targetDurationSec && songDurationSec) {
+      const diff = Math.abs(songDurationSec - targetDurationSec);
+      if (diff <= 3) {
+        score += 60;
+      } else if (diff <= 6) {
+        score += 30;
+      } else if (diff > 10) {
+        score -= 40;
+      }
+    }
 
     if (score > bestScore) {
       bestScore = score;
@@ -203,6 +224,27 @@ function polishThaiTranslation(originalEng, rawThai) {
 
 const translationCache = {};
 
+function httpsGet(url, headers = {}) {
+  return new Promise((resolve) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', ...headers } }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    }).on('error', () => resolve({ status: 500, body: '' }));
+  });
+}
+
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+}
+
 async function translateTextBackend(text) {
   if (!text || !text.trim()) return '';
   const trimmed = text.trim();
@@ -210,16 +252,16 @@ async function translateTextBackend(text) {
   if (/[\u0E00-\u0E7F]/.test(trimmed)) return '';
 
   const cleanEng = trimmed.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').trim() || trimmed;
-  const normKey = cleanEng.toLowerCase().replace(/[^\w\s]/g, '').trim();
-  if (translationCache[normKey]) return translationCache[normKey];
+  const normKey = cleanEng.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || cleanEng.toLowerCase().trim();
+  if (normKey && translationCache[normKey]) return translationCache[normKey];
 
   try {
     const transPath = path.join(__dirname, 'local_translations.json');
     if (fs.existsSync(transPath)) {
       const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
       for (const k of Object.keys(localTrans)) {
-        const normK = k.toLowerCase().replace(/[^\w\s]/g, '').trim();
-        if (normK === normKey || normKey.includes(normK)) {
+        const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
+        if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
           translationCache[normKey] = localTrans[k];
           return localTrans[k];
         }
@@ -227,11 +269,29 @@ async function translateTextBackend(text) {
     }
   } catch (err) {}
 
+  // 1. Provider 1: Google Web Mobile (fast, unthrottled)
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
+    const url1 = 'https://translate.google.com/m?sl=auto&tl=th&q=' + encodeURIComponent(cleanEng);
+    const res1 = await httpsGet(url1);
+    if (res1.status === 200) {
+      const match = res1.body.match(/class="result-container">([^<]+)/) || res1.body.match(/class="t0">([^<]+)/);
+      if (match && match[1]) {
+        const rawThai = decodeHtmlEntities(match[1].trim());
+        const polished = polishThaiTranslation(cleanEng, rawThai);
+        if (polished) {
+          translationCache[normKey] = polished;
+          return polished;
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 2. Provider 2: Google Translate GTX Endpoint
+  try {
+    const url2 = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
+    const res2 = await httpsGet(url2);
+    if (res2.status === 200) {
+      const data = JSON.parse(res2.body);
       const rawThai = data[0]?.map(item => item[0]).join('') || '';
       const polished = polishThaiTranslation(cleanEng, rawThai);
       if (polished) {
@@ -241,11 +301,28 @@ async function translateTextBackend(text) {
     }
   } catch (err) {}
 
+  // 3. Provider 3: MyMemory API (Reliable Fallback)
+  try {
+    const url3 = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(cleanEng) + '&langpair=en|th';
+    const res3 = await httpsGet(url3);
+    if (res3.status === 200) {
+      const data = JSON.parse(res3.body);
+      const rawThai = data?.responseData?.translatedText || '';
+      if (rawThai && !rawThai.includes('MYMEMORY WARNING')) {
+        const polished = polishThaiTranslation(cleanEng, decodeHtmlEntities(rawThai));
+        if (polished) {
+          translationCache[normKey] = polished;
+          return polished;
+        }
+      }
+    }
+  } catch (err) {}
+
   return '';
 }
 
 // Backend Lyrics Fetcher (LRCLIB + QQ Music)
-async function getSyncedLyricsBackend(trackName, artistName) {
+async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec = null) {
   const cleanTrack = trackName
     .replace(/\([^)]*\)/g, '')
     .replace(/\[[^\]]*\]/g, '')
@@ -280,7 +357,21 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     }
   } catch (err) {}
 
-  // 1. Try LRCLIB /api/get
+  // 1. Try LRCLIB search with full track name (with Edit/Remix tag & duration matching)
+  try {
+    const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + trackName)}`;
+    const resQ = await fetch(qUrl);
+    if (resQ.ok) {
+      const list = await resQ.json();
+      const syncedItem = pickBestSongMatch(list, trackName, artistName, targetDurationSec);
+      if (syncedItem && syncedItem.syncedLyrics) {
+        const parsed = parseAndMergeLrc(syncedItem.syncedLyrics);
+        if (parsed) return parsed;
+      }
+    }
+  } catch (err) {}
+
+  // 2. Try LRCLIB /api/get with cleanTrack
   try {
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTrack)}&artist_name=${encodeURIComponent(cleanArtist)}`;
     const resGet = await fetch(getUrl);
@@ -347,9 +438,9 @@ async function getSyncedLyricsBackend(trackName, artistName) {
 }
 
 app.get('/api/lyrics', async (req, res) => {
-  const { track, artist } = req.query;
+  const { track, artist, duration } = req.query;
   if (!track || !artist) return res.json({ lyrics: null });
-  const lyrics = await getSyncedLyricsBackend(track, artist);
+  const lyrics = await getSyncedLyricsBackend(track, artist, duration ? parseFloat(duration) : null);
   res.json({ lyrics });
 });
 
@@ -360,14 +451,75 @@ app.get('/api/translate', async (req, res) => {
   res.json({ translation });
 });
 
-// Serve index.html for all SPA routes / callback
+// Direct OAuth Callback Handler with Automatic PKCE Token Exchange
+app.get('/callback', async (req, res) => {
+  const code = req.query.code;
+  if (code) {
+    try {
+      let verifier = '';
+      const pkceFile = path.join(__dirname, 'pkce_temp.json');
+      if (fs.existsSync(pkceFile)) {
+        const pkce = JSON.parse(fs.readFileSync(pkceFile, 'utf8'));
+        verifier = pkce.verifier;
+      }
+      if (verifier) {
+        const bodyParams = new URLSearchParams({
+          client_id: '62e388ea4f4b4a64898da6d4a15281f0',
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: 'http://127.0.0.1:3000/callback',
+          code_verifier: verifier
+        });
+        const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: bodyParams.toString()
+        });
+        const tokenData = await tokenRes.json();
+        if (tokenData.access_token) {
+          const sessionData = {
+            spotify_access_token: tokenData.access_token,
+            spotify_refresh_token: tokenData.refresh_token,
+            spotify_client_id: '62e388ea4f4b4a64898da6d4a15281f0',
+            spotify_redirect_uri: 'http://127.0.0.1:3000/callback'
+          };
+          fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionData, null, 2));
+          console.log('✅ Successfully authorized with full playlist scopes!');
+          return res.send(`
+            <html>
+            <head><meta charset="utf-8"><title>Spotify Connected</title></head>
+            <body style="background:#121212;color:#10b981;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;">
+              <h1 style="margin-bottom:8px;">✅ อัปเดตสิทธิ์ Playlist สำเร็จเรียบร้อยแล้ว!</h1>
+              <p style="color:#e5e7eb;font-size:16px;">ระบบพร้อมเพิ่มเพลงลงใน Playlist ของคุณแล้ว สามารถปิดหน้านี้ได้เลยครับ</p>
+            </body>
+            </html>
+          `);
+        }
+      }
+    } catch (e) {
+      console.error('Server OAuth Callback error:', e);
+    }
+  }
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Serve index.html for all SPA routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`==================================================`);
-  console.log(`🎵 Spotify Stealth Quick Bar is running!`);
-  console.log(`👉 Open: http://127.0.0.1:${PORT}`);
-  console.log(`==================================================`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`==================================================`);
+    console.log(`🎵 Spotify Stealth Quick Bar is running!`);
+    console.log(`👉 Open: http://127.0.0.1:${PORT}`);
+    console.log(`==================================================`);
+  });
+}
+
+module.exports = {
+  app,
+  getSyncedLyricsBackend,
+  translateTextBackend,
+  pickBestSongMatch
+};

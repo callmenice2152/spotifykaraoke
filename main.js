@@ -1,6 +1,9 @@
 const { app, BrowserWindow, globalShortcut, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const https = require('https');
 const { spawn } = require('child_process');
+const { app: expressApp } = require('./server');
 
 let mainWindow = null;
 let lyricsWindow = null;
@@ -9,10 +12,19 @@ let serverProcess = null;
 
 // Start Express Server
 function startServer() {
-  serverProcess = spawn('node', ['server.js'], {
-    cwd: __dirname,
-    stdio: 'ignore'
-  });
+  try {
+    expressApp.listen(3000, '0.0.0.0', () => {
+      console.log('Express server running on http://127.0.0.1:3000');
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log('Port 3000 is already in use, reusing existing server.');
+      } else {
+        console.error('Express server error:', err);
+      }
+    });
+  } catch (err) {
+    console.error('Failed to start express server:', err);
+  }
 }
 
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -60,9 +72,32 @@ function createWindow() {
   });
 }
 
+const LYRICS_POS_FILE = path.join(__dirname, 'lyrics_position.json');
+
+function loadLyricsPosition() {
+  try {
+    if (fs.existsSync(LYRICS_POS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(LYRICS_POS_FILE, 'utf8'));
+      if (typeof data.x === 'number' && typeof data.y === 'number') {
+        return { x: data.x, y: data.y };
+      }
+    }
+  } catch (err) {}
+  return null;
+}
+
+function saveLyricsPosition(x, y) {
+  try {
+    fs.writeFileSync(LYRICS_POS_FILE, JSON.stringify({ x, y, updatedAt: new Date().toISOString() }, null, 2));
+    console.log(`[Lyrics Window] Position saved: x=${x}, y=${y}`);
+  } catch (err) {}
+}
+
 // Create Floating Transparent Lyrics Window
 function createLyricsWindow() {
-  lyricsWindow = new BrowserWindow({
+  const savedPos = loadLyricsPosition();
+
+  const windowOpts = {
     width: 200,
     height: 24,
     frame: false,
@@ -77,7 +112,14 @@ function createLyricsWindow() {
       contextIsolation: false,
       backgroundThrottling: false
     }
-  });
+  };
+
+  if (savedPos) {
+    windowOpts.x = savedPos.x;
+    windowOpts.y = savedPos.y;
+  }
+
+  lyricsWindow = new BrowserWindow(windowOpts);
 
   // Load the lyrics page
   lyricsWindow.loadURL('http://127.0.0.1:3000/lyrics.html');
@@ -85,6 +127,29 @@ function createLyricsWindow() {
   // Auto-show on launch once ready
   lyricsWindow.once('ready-to-show', () => {
     lyricsWindow.show();
+    if (savedPos) {
+      lyricsWindow.setPosition(savedPos.x, savedPos.y);
+    }
+    lyricsWindow.webContents.send('toggle-lyrics-bg', lyricsBgEnabled);
+  });
+
+  // Automatically remember position whenever moved/dragged on screen
+  let moveTimeout = null;
+  lyricsWindow.on('moved', () => {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+      const [x, y] = lyricsWindow.getPosition();
+      saveLyricsPosition(x, y);
+    }
+  });
+
+  lyricsWindow.on('move', () => {
+    clearTimeout(moveTimeout);
+    moveTimeout = setTimeout(() => {
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+        const [x, y] = lyricsWindow.getPosition();
+        saveLyricsPosition(x, y);
+      }
+    }, 200);
   });
 
   lyricsWindow.on('close', (event) => {
@@ -106,7 +171,10 @@ function toggleWindow() {
 }
 
 function toggleLyricsWindow() {
-  if (!lyricsWindow) return;
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) {
+    createLyricsWindow();
+    return;
+  }
   if (lyricsWindow.isVisible()) {
     lyricsWindow.hide();
   } else {
@@ -143,6 +211,37 @@ ipcMain.on('resize-lyrics-window', (event, { width, height }) => {
     const h = Math.max(18, Math.ceil(height));
     lyricsWindow.setSize(w, h, false);
   }
+});
+
+// IPC Listener to toggle floating lyrics window directly
+ipcMain.on('toggle-lyrics', () => {
+  toggleLyricsWindow();
+});
+
+// Lyrics Background State (Default: OFF / transparent on launch)
+let lyricsBgEnabled = false;
+
+function toggleLyricsBackground(forceState) {
+  if (typeof forceState === 'boolean') {
+    lyricsBgEnabled = forceState;
+  } else {
+    lyricsBgEnabled = !lyricsBgEnabled;
+  }
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+    lyricsWindow.webContents.send('toggle-lyrics-bg', lyricsBgEnabled);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('lyrics-bg-changed', lyricsBgEnabled);
+  }
+  console.log(`[Lyrics Window] Background is now: ${lyricsBgEnabled ? 'ON' : 'OFF'}`);
+}
+
+ipcMain.on('toggle-lyrics-bg', (event, state) => {
+  toggleLyricsBackground(state);
+});
+
+ipcMain.handle('get-lyrics-bg-state', () => {
+  return lyricsBgEnabled;
 });
 
 function parseAndMergeLrc(rawLrc) {
@@ -211,24 +310,47 @@ function parseAndMergeLrc(rawLrc) {
   }).join('\n');
 }
 
-function pickBestSongMatch(songs, targetTrack, targetArtist) {
+/**
+ * =========================================================================================
+ * 🧠 CORE INTELLIGENCE: Synced Lyrics Matcher & Anti-Desync Scoring Engine
+ * =========================================================================================
+ * ฟังก์ชันนี้คือหัวใจสำคัญในการเลือกไฟล์เนื้อเพลงที่ "ตรงจังหวะและตรงเวอร์ชัน 100%":
+ * 
+ * 1. Duration Matching (ตรวจจับความยาวเพลงระดับมิลลิวินาทีจาก Spotify):
+ *    - ป้องกันปัญหาเนื้อเพลงไม่ตรงจังหวะ (Desync) โดยให้คะแนนโบนัสสูงสุด (+60) 
+ *      กับไฟล์เนื้อเพลงที่ความยาวตรงกับเพลงบน Spotify (±3s)
+ * 
+ * 2. MV & Video Filter (ระบบกรองเพลงเวอร์ชัน Music Video):
+ *    - ตัดคะแนน (-40) ไฟล์ที่เป็นเวอร์ชัน MV/YouTube ที่มักมีบทสนทนาหรืออินโทรเกินมา 
+ *      (แก้ปัญหาดีเลย์ 10-15 วินาที เช่น เพลง Reminder ของ The Weeknd)
+ * 
+ * 3. Special Version Handler (ตรวจจับ Edit, Remix, Acoustic, Live):
+ *    - จับคู่อัตโนมัติสำหรับเวอร์ชันตัดต่อพิเศษ เช่น 'Happier Than Ever - Edit'
+ *      ให้ดึงเนื้อเพลงของท่อนตัดต่อโดยเฉพาะ ไม่ดึงเวอร์ชันเต็มมาปน
+ * 
+ * 4. Fuzzy Artist & Title Verification:
+ *    - ตัดอักขระพิเศษ เว้นวรรค และวงเล็บ เพื่อเทียบความถูกต้องแม้ชื่อเพลงจะมีฟอร์แมตต่างกัน
+ * =========================================================================================
+ */
+function pickBestSongMatch(songs, targetTrack, targetArtist, targetDurationSec = null) {
   if (!songs || songs.length === 0) return null;
   const norm = str => (str || '').toLowerCase().replace(/\s+/g, '').replace(/[^\w\u0E00-\u0E7F]/g, '');
   const targetNorm = norm(targetTrack);
   const cleanTrackNorm = norm(targetTrack.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/-.*/g, '').trim());
   const artistNorm = norm(targetArtist);
-  const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver');
+  const isTargetRemix = targetNorm.includes('misscall') || targetNorm.includes('acoustic') || targetNorm.includes('remix') || targetNorm.includes('live') || targetNorm.includes('cover') || targetNorm.includes('ver') || targetNorm.includes('edit');
 
   let bestSong = null;
   let bestScore = -999;
 
   for (let song of songs) {
+    if (!song.syncedLyrics && !song.lyric && !song.fyc) continue;
     const songTitle = song.trackName || song.songtitle || song.songname || '';
     const songNorm = norm(songTitle);
     const singerList = Array.isArray(song.singer)
       ? song.singer.map(s => norm(s.name || '')).join('')
       : norm(song.artistName || '');
-    const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver');
+    const isSongRemix = songNorm.includes('misscall') || songNorm.includes('acoustic') || songNorm.includes('remix') || songNorm.includes('live') || songNorm.includes('cover') || songNorm.includes('ver') || songNorm.includes('edit');
 
     let score = 0;
     if (songNorm === targetNorm) {
@@ -249,8 +371,27 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
       score -= 40;
     }
 
-    // Penalty if song has remix/version tag but Spotify track does NOT
+    // Reward if both target and song are Remix/Edit, penalty if mismatches
+    if (isTargetRemix && isSongRemix) score += 30;
     if (!isTargetRemix && isSongRemix) score -= 30;
+
+    // Penalty for Music Video versions if target is not MV (MVs often have intro/outro delays)
+    if (!targetNorm.includes('video') && !targetNorm.includes('mv') && (songNorm.includes('officialvideo') || songNorm.includes('musicvideo') || songNorm.includes('video') || songNorm.includes('mv'))) {
+      score -= 40;
+    }
+
+    // Duration matching bonus & penalty (Ensures exact audio sync with Spotify track)
+    const songDurationSec = song.duration || song.interval;
+    if (targetDurationSec && songDurationSec) {
+      const diff = Math.abs(songDurationSec - targetDurationSec);
+      if (diff <= 3) {
+        score += 60;
+      } else if (diff <= 6) {
+        score += 30;
+      } else if (diff > 10) {
+        score -= 40;
+      }
+    }
 
     if (score > bestScore) {
       bestScore = score;
@@ -262,7 +403,7 @@ function pickBestSongMatch(songs, targetTrack, targetArtist) {
 }
 
 // Native Node.js Lyrics Engine (LRCLIB + QQ Music) for 100% Thai & International Coverage
-async function getSyncedLyricsBackend(trackName, artistName) {
+async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec = null) {
   const cleanTrack = trackName
     .replace(/\([^)]*\)/g, '')
     .replace(/\[[^\]]*\]/g, '')
@@ -302,7 +443,21 @@ async function getSyncedLyricsBackend(trackName, artistName) {
     console.error('Error reading local lyrics override:', err);
   }
 
-  // 1. Try LRCLIB /api/get
+  // 1. Try LRCLIB search with full track name (with Edit/Remix tag & duration matching)
+  try {
+    const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + trackName)}`;
+    const resQ = await fetch(qUrl);
+    if (resQ.ok) {
+      const list = await resQ.json();
+      const syncedItem = pickBestSongMatch(list, trackName, artistName, targetDurationSec);
+      if (syncedItem && syncedItem.syncedLyrics) {
+        const parsed = parseAndMergeLrc(syncedItem.syncedLyrics);
+        if (parsed) return parsed;
+      }
+    }
+  } catch (err) {}
+
+  // 2. Try LRCLIB /api/get with cleanTrack
   try {
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTrack)}&artist_name=${encodeURIComponent(cleanArtist)}`;
     const resGet = await fetch(getUrl);
@@ -405,6 +560,27 @@ function polishThaiTranslation(originalEng, rawThai) {
 
 const translationCache = {};
 
+function httpsGet(url, headers = {}) {
+  return new Promise((resolve) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', ...headers } }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    }).on('error', () => resolve({ status: 500, body: '' }));
+  });
+}
+
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+}
+
 async function translateTextBackend(text) {
   if (!text || !text.trim()) return '';
   const trimmed = text.trim();
@@ -414,8 +590,8 @@ async function translateTextBackend(text) {
 
   // Strip parenthetical ad-libs (e.g. '(Next)', '(Yeah)') for clean matching
   const cleanEng = trimmed.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').trim() || trimmed;
-  const normKey = cleanEng.toLowerCase().replace(/[^\w\s]/g, '').trim();
-  if (translationCache[normKey]) return translationCache[normKey];
+  const normKey = cleanEng.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || cleanEng.toLowerCase().trim();
+  if (normKey && translationCache[normKey]) return translationCache[normKey];
 
   // 1. Check local_translations.json
   try {
@@ -423,8 +599,8 @@ async function translateTextBackend(text) {
     if (fs.existsSync(transPath)) {
       const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
       for (const k of Object.keys(localTrans)) {
-        const normK = k.toLowerCase().replace(/[^\w\s]/g, '').trim();
-        if (normK === normKey || normKey.includes(normK)) {
+        const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
+        if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
           translationCache[normKey] = localTrans[k];
           return localTrans[k];
         }
@@ -432,12 +608,29 @@ async function translateTextBackend(text) {
     }
   } catch (err) {}
 
-  // 2. Fetch online translation + apply systemic polish
+  // 2. Provider 1: Google Web Mobile (fast, unthrottled)
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
+    const url1 = 'https://translate.google.com/m?sl=auto&tl=th&q=' + encodeURIComponent(cleanEng);
+    const res1 = await httpsGet(url1);
+    if (res1.status === 200) {
+      const match = res1.body.match(/class="result-container">([^<]+)/) || res1.body.match(/class="t0">([^<]+)/);
+      if (match && match[1]) {
+        const rawThai = decodeHtmlEntities(match[1].trim());
+        const polished = polishThaiTranslation(cleanEng, rawThai);
+        if (polished) {
+          translationCache[normKey] = polished;
+          return polished;
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 3. Provider 2: Google Translate GTX Endpoint
+  try {
+    const url2 = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q=${encodeURIComponent(cleanEng)}`;
+    const res2 = await httpsGet(url2);
+    if (res2.status === 200) {
+      const data = JSON.parse(res2.body);
       const rawThai = data[0]?.map(item => item[0]).join('') || '';
       const polished = polishThaiTranslation(cleanEng, rawThai);
       if (polished) {
@@ -447,13 +640,30 @@ async function translateTextBackend(text) {
     }
   } catch (err) {}
 
+  // 4. Provider 3: MyMemory API (Reliable Fallback)
+  try {
+    const url3 = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(cleanEng) + '&langpair=en|th';
+    const res3 = await httpsGet(url3);
+    if (res3.status === 200) {
+      const data = JSON.parse(res3.body);
+      const rawThai = data?.responseData?.translatedText || '';
+      if (rawThai && !rawThai.includes('MYMEMORY WARNING')) {
+        const polished = polishThaiTranslation(cleanEng, decodeHtmlEntities(rawThai));
+        if (polished) {
+          translationCache[normKey] = polished;
+          return polished;
+        }
+      }
+    }
+  } catch (err) {}
+
   return '';
 }
 
 // IPC Handle for Lyrics Fetching directly from Electron Main Node Process
-ipcMain.handle('get-lyrics', async (event, { track, artist }) => {
+ipcMain.handle('get-lyrics', async (event, { track, artist, duration }) => {
   if (!track || !artist) return null;
-  return await getSyncedLyricsBackend(track, artist);
+  return await getSyncedLyricsBackend(track, artist, duration);
 });
 
 // IPC Handle for Real-time Line Translation
@@ -478,6 +688,7 @@ function createTray() {
     const contextMenu = Menu.buildFromTemplate([
       { label: '🎵 Show / Hide Sneak Bar (Alt+Space)', click: () => toggleWindow() },
       { label: '🎤 Show / Hide Lyrics Overlay (Alt+L / Alt+\\)', click: () => toggleLyricsWindow() },
+      { label: '🖼️ Toggle Lyrics Background (Alt+B)', click: () => toggleLyricsBackground() },
       { label: '📌 Toggle Always on Top', type: 'checkbox', checked: true, click: (menuItem) => {
         if (mainWindow) mainWindow.setAlwaysOnTop(menuItem.checked);
       }},
@@ -516,13 +727,25 @@ app.whenReady().then(() => {
       toggleWindow();
     });
 
-    // Register Hotkeys for Lyrics Toggle (Alt+L & Alt+\)
-    globalShortcut.register('Alt+L', () => {
-      toggleLyricsWindow();
+    // Register Hotkeys for Lyrics Toggle
+    const toggleLyrics = () => toggleLyricsWindow();
+    const shortcuts = ['Alt+\\', 'Alt+K', 'Alt+L', 'Ctrl+Shift+L', 'Alt+F9'];
+    shortcuts.forEach(sc => {
+      try {
+        const ok = globalShortcut.register(sc, toggleLyrics);
+        console.log(`Shortcut [${sc}] registered:`, ok);
+      } catch (err) {
+        console.error(`Shortcut [${sc}] registration error:`, err.message);
+      }
     });
-    globalShortcut.register('Alt+\\', () => {
-      toggleLyricsWindow();
-    });
+
+    // Register Hotkey for Lyrics Background Toggle (Alt+B)
+    try {
+      const bgOk = globalShortcut.register('Alt+B', () => toggleLyricsBackground());
+      console.log('Shortcut [Alt+B] registered:', bgOk);
+    } catch (err) {
+      console.error('Shortcut [Alt+B] registration error:', err.message);
+    }
   } catch (err) {
     console.error('Shortcut registration error:', err);
   }

@@ -128,6 +128,15 @@ async function main() {
     } else {
       console.log('Spotify is currently idle.');
     }
+  } else if (command === 'auto-queue' || command === 'ghost-queue') {
+    const { runAutoQueue } = require('./auto_queue_ghost');
+    let h = 16, m = 45;
+    if (param && param.includes(':')) {
+      const parts = param.split(':');
+      h = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10);
+    }
+    await runAutoQueue(h, m, true);
   }
 }
 
