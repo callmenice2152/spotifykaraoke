@@ -53,6 +53,7 @@
       text-shadow: 0px 1px 6px rgba(0, 0, 0, 0.85);
       white-space: nowrap;
       letter-spacing: 0.2px;
+      transition: color 0.25s ease, text-shadow 0.25s ease;
     }
     .lyric-box.no-bg .lyric-text {
       text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.95), 0px 0px 2px rgba(0, 0, 0, 0.9);
@@ -66,9 +67,19 @@
       font-style: normal;
       white-space: nowrap;
       letter-spacing: 0.1px;
+      transition: color 0.25s ease, text-shadow 0.25s ease;
     }
     .lyric-box.no-bg .lyric-trans {
       text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.95), 0px 0px 2px rgba(0, 0, 0, 0.9);
+    }
+    /* Adaptive Light Theme (Automatic dark font on bright/white screen backgrounds in No-BG mode) */
+    body.light-theme .lyric-box.no-bg .lyric-text {
+      color: #111827;
+      text-shadow: 0px 1px 3px rgba(255, 255, 255, 0.95), 0px 0px 2px rgba(255, 255, 255, 0.9);
+    }
+    body.light-theme .lyric-box.no-bg .lyric-trans {
+      color: #374151;
+      text-shadow: 0px 1px 3px rgba(255, 255, 255, 0.95), 0px 0px 2px rgba(255, 255, 255, 0.9);
     }
     .hidden {
       display: none !important;
@@ -88,6 +99,15 @@
     }
     body.sneak-mode .lyric-trans {
       color: #7ee787;
+      text-shadow: none;
+    }
+    /* Sneak Mode Light Theme (VS Code Light IDE Style) */
+    body.sneak-mode.light-theme .lyric-box.no-bg .lyric-text {
+      color: #0969da;
+      text-shadow: none;
+    }
+    body.sneak-mode.light-theme .lyric-box.no-bg .lyric-trans {
+      color: #1a7f37;
       text-shadow: none;
     }
     .close-btn {
@@ -164,6 +184,14 @@
           document.body.classList.remove('sneak-mode');
         }
         notifyResize();
+      });
+
+      ipcRenderer.on('set-adaptive-theme', (event, theme) => {
+        if (theme === 'light') {
+          document.body.classList.add('light-theme');
+        } else {
+          document.body.classList.remove('light-theme');
+        }
       });
 
       function toggleBackground(isEnabled) {

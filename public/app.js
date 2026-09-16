@@ -853,10 +853,10 @@ function parsePlainLyrics(plainText) {
 }
 
 function showNoLyricsPlaceholder() {
-  lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">No lyrics available for this song.</div>';
+  lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">No lyrics</div>';
   if (window.require) {
     const { ipcRenderer } = window.require('electron');
-    ipcRenderer.send('update-lyric-text', '🎵 (No lyrics available)');
+    ipcRenderer.send('update-lyric-text', 'No lyrics');
   }
 }
 

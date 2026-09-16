@@ -316,6 +316,16 @@ function toggleLyricsBackground(forceState) {
     mainWindow.webContents.send('lyrics-bg-changed', lyricsBgEnabled);
   }
   console.log(`[Lyrics Window] Background is now: ${lyricsBgEnabled ? 'ON' : 'OFF'}`);
+  if (lyricsBgEnabled) {
+    if (currentAdaptiveTheme !== 'dark') {
+      currentAdaptiveTheme = 'dark';
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+        lyricsWindow.webContents.send('set-adaptive-theme', 'dark');
+      }
+    }
+  } else {
+    checkScreenLuminance();
+  }
 }
 
 ipcMain.on('toggle-lyrics-bg', (event, state) => {
@@ -325,6 +335,109 @@ ipcMain.on('toggle-lyrics-bg', (event, state) => {
 ipcMain.handle('get-lyrics-bg-state', () => {
   return lyricsBgEnabled;
 });
+
+// --- Adaptive Screen Color Contrast Sampler ---
+const SAMPLER_EXE = path.join(__dirname, 'tools', 'screen_sampler.exe');
+let samplerProcess = null;
+let currentAdaptiveTheme = 'dark';
+let adaptiveSamplingInterval = null;
+
+function ensureSamplerCompiled() {
+  if (fs.existsSync(SAMPLER_EXE)) return true;
+  const csFile = path.join(__dirname, 'tools', 'screen_sampler.cs');
+  if (!fs.existsSync(csFile)) return false;
+  const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
+  if (!fs.existsSync(cscPath)) return false;
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync(cscPath, ['/nologo', '/optimize+', `/out:${SAMPLER_EXE}`, csFile]);
+    return fs.existsSync(SAMPLER_EXE);
+  } catch (err) {
+    console.error('[Adaptive Theme] Compilation error:', err);
+    return false;
+  }
+}
+
+function startSamplerProcess() {
+  if (samplerProcess) return;
+  if (!ensureSamplerCompiled()) {
+    console.warn('[Adaptive Theme] Screen sampler executable not available.');
+    return;
+  }
+
+  try {
+    samplerProcess = spawn(SAMPLER_EXE, [], {
+      stdio: ['pipe', 'pipe', 'ignore'],
+      windowsHide: true
+    });
+
+    samplerProcess.stdout.on('data', (data) => {
+      const output = data.toString().trim();
+      const lines = output.split('\n');
+      const latestTheme = lines[lines.length - 1].trim();
+      if (latestTheme === 'light' || latestTheme === 'dark') {
+        if (currentAdaptiveTheme !== latestTheme) {
+          currentAdaptiveTheme = latestTheme;
+          if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+            lyricsWindow.webContents.send('set-adaptive-theme', currentAdaptiveTheme);
+          }
+        }
+      }
+    });
+
+    samplerProcess.on('exit', () => {
+      samplerProcess = null;
+    });
+  } catch (err) {
+    console.error('[Adaptive Theme] Failed to start sampler process:', err);
+  }
+}
+
+function stopSamplerProcess() {
+  if (adaptiveSamplingInterval) {
+    clearInterval(adaptiveSamplingInterval);
+    adaptiveSamplingInterval = null;
+  }
+  if (samplerProcess) {
+    try {
+      samplerProcess.stdin.write('exit\n');
+      samplerProcess.kill();
+    } catch (e) {}
+    samplerProcess = null;
+  }
+}
+
+function checkScreenLuminance() {
+  if (!lyricsWindow || lyricsWindow.isDestroyed() || !lyricsWindow.isVisible()) {
+    return;
+  }
+  // If background box is enabled (dark glass), force dark theme (white text) and skip sampling
+  if (lyricsBgEnabled) {
+    if (currentAdaptiveTheme !== 'dark') {
+      currentAdaptiveTheme = 'dark';
+      lyricsWindow.webContents.send('set-adaptive-theme', 'dark');
+    }
+    return;
+  }
+
+  if (!samplerProcess) {
+    startSamplerProcess();
+    if (!samplerProcess) return;
+  }
+
+  try {
+    const [x, y] = lyricsWindow.getPosition();
+    const [w, h] = lyricsWindow.getSize();
+    samplerProcess.stdin.write(`${x} ${y} ${w} ${h}\n`);
+  } catch (err) {}
+}
+
+function startAdaptiveSampling() {
+  startSamplerProcess();
+  if (!adaptiveSamplingInterval) {
+    adaptiveSamplingInterval = setInterval(checkScreenLuminance, 700);
+  }
+}
 
 function parseAndMergeLrc(rawLrc) {
   if (!rawLrc) return null;
@@ -661,6 +774,7 @@ app.whenReady().then(() => {
     createWindow();
     createLyricsWindow();
     createTray();
+    startAdaptiveSampling();
   }, 1000);
 
   // Register Global Hotkeys
@@ -726,6 +840,7 @@ app.on('will-quit', () => {
   try {
     globalShortcut.unregisterAll();
   } catch (err) {}
+  stopSamplerProcess();
   if (serverProcess) serverProcess.kill();
 });
 
