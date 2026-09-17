@@ -427,6 +427,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
         if (parsed) return parsed;
       }
     }
+    
   } catch (err) {}
 
   // 3. Try QQ Music API with Smart Original vs Remix Matching

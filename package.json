@@ -14,5 +14,6 @@
   },
   "devDependencies": {
     "electron": "^34.2.0"
-  }
+  },
+  "repository": "https://github.com/callmenice2152/spotifykaraoke"
 }
