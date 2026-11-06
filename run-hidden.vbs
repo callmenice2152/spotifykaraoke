@@ -1,5 +1,4 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "c:\xampp\htdocs\spotify-auto"
+Set fso = CreateObject("Scripting.FileSystemObject")
+WshShell.CurrentDirectory = fso.GetParentFolderName(WScript.ScriptFullName)
 WshShell.Run "cmd.exe /c npx electron .", 0, False
-
-' 999

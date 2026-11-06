@@ -1,5 +1,5 @@
 @echo off
-cd /d "c:\xampp\htdocs\spotify-auto"
+cd /d "%~dp0"
 start "" wscript.exe "run-hidden.vbs"
 exit
 

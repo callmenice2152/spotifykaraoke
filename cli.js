@@ -1,6 +1,23 @@
 // Spotify Stealth Bar CLI Controller for AI Assistant
 const fs = require('fs');
 const path = require('path');
+const { Agent, setGlobalDispatcher } = require('./node_modules/undici');
+const dns = require('dns').promises;
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+  setGlobalDispatcher(new Agent({
+    connect: {
+      lookup: (h, o, cb) => {
+        if (typeof o === 'function') { cb = o; o = {}; }
+        dns.resolve4(h).then(a => {
+          if (o && o.all) cb(null, a.map(ip => ({ address: ip, family: 4 })));
+          else cb(null, a[0], 4);
+        }).catch(cb);
+      }
+    }
+  }));
+} catch (e) {}
 
 const SESSION_FILE = path.join(__dirname, 'session.json');
 
@@ -63,6 +80,40 @@ async function apiCall(endpoint, method = 'GET', body = null) {
   }
 }
 
+function findBestTrack(items, query) {
+  if (!items || items.length === 0) return null;
+  const qClean = query.toLowerCase().trim();
+  const qTokens = qClean.split(/\s+/);
+
+  // 1. Exact track name match
+  let match = items.find(t => t.name.toLowerCase() === qClean);
+  if (match) return match;
+
+  // 2. Track name starts with query or query starts with track name
+  match = items.find(t => {
+    const tName = t.name.toLowerCase();
+    return qClean.startsWith(tName) || tName.startsWith(qClean);
+  });
+  if (match) return match;
+
+  // 3. Score by token coverage in title + artist
+  let bestItem = items[0];
+  let bestScore = -1;
+  for (const item of items) {
+    const fullText = (item.name + ' ' + item.artists.map(a => a.name).join(' ')).toLowerCase();
+    let score = 0;
+    for (const token of qTokens) {
+      if (fullText.includes(token)) score++;
+    }
+    if (item.name.toLowerCase().includes(qTokens[0])) score += 2;
+    if (score > bestScore) {
+      bestScore = score;
+      bestItem = item;
+    }
+  }
+  return bestItem;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0]?.toLowerCase();
@@ -76,9 +127,9 @@ async function main() {
   if (command === 'play') {
     if (param) {
       // Search track/artist/playlist first
-      const searchData = await apiCall(`/v1/search?q=${encodeURIComponent(param)}&type=track,artist,playlist&limit=1`);
+      const searchData = await apiCall(`/v1/search?q=${encodeURIComponent(param)}&type=track,artist,playlist&limit=5`);
       if (searchData && typeof searchData === 'object') {
-        const track = searchData.tracks?.items[0];
+        const track = findBestTrack(searchData.tracks?.items, param);
         const artist = searchData.artists?.items[0];
         const playlist = searchData.playlists?.items[0];
 
@@ -97,9 +148,9 @@ async function main() {
     }
   } else if (command === 'queue') {
     if (param) {
-      const searchData = await apiCall(`/v1/search?q=${encodeURIComponent(param)}&type=track&limit=1`);
-      if (searchData && searchData.tracks?.items[0]) {
-        const track = searchData.tracks.items[0];
+      const searchData = await apiCall(`/v1/search?q=${encodeURIComponent(param)}&type=track&limit=5`);
+      const track = findBestTrack(searchData?.tracks?.items, param);
+      if (track) {
         await apiCall(`/v1/me/player/queue?uri=${encodeURIComponent(track.uri)}`, 'POST');
         console.log(`➕ Queued track: "${track.name}" by ${track.artists.map(a => a.name).join(', ')}`);
       } else {

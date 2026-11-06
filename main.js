@@ -3,6 +3,33 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { spawn } = require('child_process');
+let undiciModule = null;
+try {
+  undiciModule = require('undici');
+} catch (e) {
+  try {
+    undiciModule = require('./node_modules/undici');
+  } catch (e2) {}
+}
+const dns = require('dns').promises;
+
+if (undiciModule && undiciModule.Agent && undiciModule.setGlobalDispatcher) {
+  try {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+    undiciModule.setGlobalDispatcher(new undiciModule.Agent({
+      connect: {
+        lookup: (h, o, cb) => {
+          if (typeof o === 'function') { cb = o; o = {}; }
+          dns.resolve4(h).then(a => {
+            if (o && o.all) cb(null, a.map(ip => ({ address: ip, family: 4 })));
+            else cb(null, a[0], 4);
+          }).catch(cb);
+        }
+      }
+    }));
+  } catch (e) {}
+}
+
 const { app: expressApp, translateTextBackend } = require('./server');
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -54,12 +81,12 @@ function createWindow() {
     return;
   }
   mainWindow = new BrowserWindow({
-    width: 480,
-    height: 220, // Default compact height matching design!
+    width: 326,
+    height: 44, // Default Idle compact height matching stealth design!
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    resizable: true,
+    resizable: false,
     show: false, // Start hidden until ready
     webPreferences: {
       nodeIntegration: true,
@@ -109,14 +136,9 @@ function getWorkArea() {
   }
 }
 
-// Calculate default Bottom-Center position dynamically based on display work area
-function getDefaultLyricsPosition(windowWidth = 240, windowHeight = 32) {
-  const workArea = getWorkArea();
-  const screenCenterX = Math.round(workArea.x + workArea.width / 2);
-  const x = Math.round(screenCenterX - windowWidth / 2);
-  // Position ~75px above bottom edge of work area (comfortably above taskbar)
-  const y = Math.max(50, Math.round(workArea.y + workArea.height - 75));
-  return { x, y };
+// Default lyrics overlay position (x: 717, y: 847)
+function getDefaultLyricsPosition() {
+  return { x: 717, y: 847 };
 }
 
 function loadLyricsPosition() {
@@ -248,10 +270,39 @@ function toggleLyricsWindow() {
 }
 
 // IPC Listener to dynamically resize window height when search expands/collapses
-ipcMain.on('resize-window', (event, height) => {
+ipcMain.on('resize-window', (event, payload) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    const [width] = mainWindow.getSize();
-    mainWindow.setSize(width, height, true);
+    let targetWidth = 326;
+    let targetHeight = 44;
+    if (typeof payload === 'number') {
+      targetHeight = Math.ceil(payload);
+      targetWidth = mainWindow.getSize()[0] || 326;
+    } else if (payload && typeof payload === 'object') {
+      targetWidth = Math.ceil(payload.width || 326);
+      targetHeight = Math.ceil(payload.height || 44);
+    }
+    mainWindow.setSize(targetWidth, targetHeight, false);
+  }
+});
+
+// IPC Listener to hide main window to tray (Panic-Hide)
+ipcMain.on('hide-main-window', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+});
+
+// IPC Listener to quit app cleanly
+ipcMain.on('quit-app', () => {
+  app.isQuitting = true;
+  app.quit();
+});
+
+// IPC Listener to move main window smoothly via JS drag
+ipcMain.on('move-window-by', (event, { deltaX, deltaY }) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const [x, y] = mainWindow.getPosition();
+    mainWindow.setPosition(Math.round(x + deltaX), Math.round(y + deltaY));
   }
 });
 
@@ -613,15 +664,27 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
     const localPath = path.join(__dirname, 'local_lyrics.json');
     if (fs.existsSync(localPath)) {
       const localData = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-      const normTrack = trackName.toLowerCase().replace(/\s+/g, '');
-      const normCleanTrack = cleanTrack.toLowerCase().replace(/\s+/g, '');
+      const normTrack = trackName.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+      const normCleanTrack = cleanTrack.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+      const normArtist = cleanArtist.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
       
       let matchedLyrics = null;
+      // 1. Direct or substring match
       for (const k of Object.keys(localData)) {
-        const normK = k.toLowerCase().replace(/\s+/g, '');
-        if (normK.includes(normTrack) || normK.includes(normCleanTrack)) {
+        const normK = k.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+        if (normK === normTrack || normTrack.includes(normK) || normK.includes(normTrack)) {
           matchedLyrics = localData[k];
           break;
+        }
+      }
+      // 2. Fallback to cleanTrack only if cleanTrack is not just artist name
+      if (!matchedLyrics && normCleanTrack && normCleanTrack !== normArtist && normCleanTrack !== 'illslick' && normCleanTrack.length > 2) {
+        for (const k of Object.keys(localData)) {
+          const normK = k.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+          if (normK.includes(normCleanTrack)) {
+            matchedLyrics = localData[k];
+            break;
+          }
         }
       }
       
@@ -641,7 +704,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 1. Try LRCLIB search with full track name (with Edit/Remix tag & duration matching)
   try {
     const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + trackName)}`;
-    const resQ = await fetch(qUrl);
+    const resQ = await fetch(qUrl, { signal: AbortSignal.timeout(3500) });
     if (resQ.ok) {
       const list = await resQ.json();
       const syncedItem = pickBestSongMatch(list, trackName, artistName, targetDurationSec);
@@ -655,7 +718,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 2. Try LRCLIB /api/get with cleanTrack
   try {
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTrack)}&artist_name=${encodeURIComponent(cleanArtist)}`;
-    const resGet = await fetch(getUrl);
+    const resGet = await fetch(getUrl, { signal: AbortSignal.timeout(3500) });
     if (resGet.ok) {
       const data = await resGet.json();
       if (data.syncedLyrics && data.syncedLyrics.length > 20) {
@@ -668,7 +731,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 2. Try LRCLIB search (100% Clean Thai & International Synced Lyrics)
   try {
     const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + cleanTrack)}`;
-    const resQ = await fetch(qUrl);
+    const resQ = await fetch(qUrl, { signal: AbortSignal.timeout(3500) });
     if (resQ.ok) {
       const list = await resQ.json();
       const syncedItem = pickBestSongMatch(list, trackName, artistName);
@@ -691,7 +754,8 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
     for (let q of queries) {
       const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&p=1&n=5`;
       const res = await fetch(searchUrl, {
-        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
+        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(3500)
       });
       if (res.ok) {
         const data = await res.json();
@@ -700,7 +764,8 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
         if (bestSong && bestSong.songmid) {
           const lyricUrl = `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${bestSong.songmid}&format=json&nobase64=1`;
           const lRes = await fetch(lyricUrl, {
-            headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
+            headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(3500)
           });
           if (lRes.ok) {
             const lData = await lRes.json();
@@ -783,8 +848,17 @@ app.whenReady().then(() => {
       toggleWindow();
     });
 
-    globalShortcut.register('Alt+Space', () => {
+    globalShortcut.register('Alt+M', () => {
       toggleWindow();
+    });
+
+    globalShortcut.register('Alt+Space', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+      mainWindow.webContents.send('toggle-search-palette');
     });
 
     // Register Hotkeys for Lyrics Toggle

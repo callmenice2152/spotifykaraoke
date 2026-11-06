@@ -4,6 +4,23 @@ const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
 const https = require('https');
+const { Agent, setGlobalDispatcher } = require('./node_modules/undici');
+const dns = require('dns').promises;
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+  setGlobalDispatcher(new Agent({
+    connect: {
+      lookup: (h, o, cb) => {
+        if (typeof o === 'function') { cb = o; o = {}; }
+        dns.resolve4(h).then(a => {
+          if (o && o.all) cb(null, a.map(ip => ({ address: ip, family: 4 })));
+          else cb(null, a[0], 4);
+        }).catch(cb);
+      }
+    }
+  }));
+} catch (e) {}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -209,6 +226,13 @@ function polishThaiTranslation(originalEng, rawThai) {
   text = text.replace(/กะเทย|กระเทย/gi, 'พวกมัน');
   text = text.replace(/ตรงไป/gi, 'พูดจริงไม่ได้อำ');
   text = text.replace(/หัวใจแตกสลาย/gi, 'อกหักว่ะ');
+  text = text.replace(/,?\s*นรก\s*นั่นคือ/gi, '... ให้ตายสิ นั่นแหละคือ');
+  text = text.replace(/,?\s*นรก\s*นั่น/gi, '... ให้ตายสิ นั่น');
+  text = text.replace(/แล้ว\s*นรก\s*/gi, 'แล้ว... ให้ตายสิ ');
+  text = text.replace(/เปิดแขน|เปิด เปิด เปิด เปิดแขน/gi, 'อ้าแขนโอบกอด');
+  text = text.replace(/Lovin' เธอ/gi, 'การได้รักเธอ');
+  text = text.replace(/และอื่นๆ\s*อีกมากมาย|และอื่นๆ/gi, 'และมากขึ้นเรื่อยๆ');
+  text = text.replace(/โทรหาเธอเหมือนนิสัย/gi, 'ตัดใจจากเธอเหมือนเลิกนิสัย');
 
   // Genre-based pronoun handling
   if (isHipHop) {
@@ -258,6 +282,22 @@ async function translateTextBackend(text) {
 
   const cleanEng = trimmed.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').trim() || trimmed;
   const normKey = cleanEng.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || cleanEng.toLowerCase().trim();
+
+  // 0. Check local_translations.json first so manual overrides take immediate effect
+  try {
+    const transPath = path.join(__dirname, 'local_translations.json');
+    if (fs.existsSync(transPath)) {
+      const localTrans = JSON.parse(fs.readFileSync(transPath, 'utf8'));
+      for (const k of Object.keys(localTrans)) {
+        const normK = k.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim() || k.toLowerCase().trim();
+        if (normK === normKey || (normKey.length >= 4 && normK.length >= 4 && (normKey.includes(normK) || normK.includes(normKey)))) {
+          translationCache[normKey] = localTrans[k];
+          return localTrans[k];
+        }
+      }
+    }
+  } catch (err) {}
+
   if (normKey && translationCache[normKey]) return translationCache[normKey];
 
   if (normKey && inFlightTranslations[normKey]) {
@@ -366,15 +406,27 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
     const localPath = path.join(__dirname, 'local_lyrics.json');
     if (fs.existsSync(localPath)) {
       const localData = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-      const normTrack = trackName.toLowerCase().replace(/\s+/g, '');
-      const normCleanTrack = cleanTrack.toLowerCase().replace(/\s+/g, '');
+      const normTrack = trackName.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+      const normCleanTrack = cleanTrack.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+      const normArtist = cleanArtist.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
       
       let matchedLyrics = null;
+      // 1. Direct or substring match
       for (const k of Object.keys(localData)) {
-        const normK = k.toLowerCase().replace(/\s+/g, '');
-        if (normK.includes(normTrack) || normK.includes(normCleanTrack)) {
+        const normK = k.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+        if (normK === normTrack || normTrack.includes(normK) || normK.includes(normTrack)) {
           matchedLyrics = localData[k];
           break;
+        }
+      }
+      // 2. Fallback to cleanTrack only if cleanTrack is not just artist name
+      if (!matchedLyrics && normCleanTrack && normCleanTrack !== normArtist && normCleanTrack !== 'illslick' && normCleanTrack.length > 2) {
+        for (const k of Object.keys(localData)) {
+          const normK = k.toLowerCase().replace(/[\s\-_'"`()\[\]]/g, '');
+          if (normK.includes(normCleanTrack)) {
+            matchedLyrics = localData[k];
+            break;
+          }
         }
       }
       
@@ -391,7 +443,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 1. Try LRCLIB search with full track name (with Edit/Remix tag & duration matching)
   try {
     const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + trackName)}`;
-    const resQ = await fetch(qUrl);
+    const resQ = await fetch(qUrl, { signal: AbortSignal.timeout(3500) });
     if (resQ.ok) {
       const list = await resQ.json();
       const syncedItem = pickBestSongMatch(list, trackName, artistName, targetDurationSec);
@@ -405,7 +457,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 2. Try LRCLIB /api/get with cleanTrack
   try {
     const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTrack)}&artist_name=${encodeURIComponent(cleanArtist)}`;
-    const resGet = await fetch(getUrl);
+    const resGet = await fetch(getUrl, { signal: AbortSignal.timeout(3500) });
     if (resGet.ok) {
       const data = await resGet.json();
       if (data.syncedLyrics && data.syncedLyrics.length > 20) {
@@ -418,7 +470,7 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
   // 2. Try LRCLIB search (100% Clean Thai & International Synced Lyrics)
   try {
     const qUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanArtist + ' ' + cleanTrack)}`;
-    const resQ = await fetch(qUrl);
+    const resQ = await fetch(qUrl, { signal: AbortSignal.timeout(3500) });
     if (resQ.ok) {
       const list = await resQ.json();
       const syncedItem = pickBestSongMatch(list, trackName, artistName);
@@ -442,7 +494,8 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
     for (let q of queries) {
       const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&p=1&n=5`;
       const res = await fetch(searchUrl, {
-        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
+        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(3500)
       });
       if (res.ok) {
         const data = await res.json();
@@ -451,7 +504,8 @@ async function getSyncedLyricsBackend(trackName, artistName, targetDurationSec =
         if (bestSong && bestSong.songmid) {
           const lyricUrl = `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${bestSong.songmid}&format=json&nobase64=1`;
           const lRes = await fetch(lyricUrl, {
-            headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' }
+            headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(3500)
           });
           if (lRes.ok) {
             const lData = await lRes.json();
@@ -481,6 +535,11 @@ app.get('/api/translate', async (req, res) => {
   if (!text) return res.json({ translation: '' });
   const translation = await translateTextBackend(text);
   res.json({ translation });
+});
+
+app.get('/api/clear-cache', (req, res) => {
+  for (let k in translationCache) delete translationCache[k];
+  res.json({ success: true, message: 'Translation cache cleared' });
 });
 
 // Direct OAuth Callback Handler with Automatic PKCE Token Exchange

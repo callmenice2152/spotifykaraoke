@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>System Command</title>
+  <title>Stealth Spotify Widget</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,133 +11,216 @@
 </head>
 <body class="normal-mode">
   
-  <div class="app-container">
-    <!-- Success / Action Toast Banner -->
-    <div class="toast-banner hidden" id="toastBanner">
+  <div class="stealth-app" id="stealthApp">
+    
+    <!-- Toast Notification Banner -->
+    <div class="toast-banner hidden no-drag" id="toastBanner">
       <span class="toast-icon" id="toastIcon">✅</span>
       <span class="toast-message" id="toastMessage">Success</span>
     </div>
 
-    <!-- Top Header (Draggable Handle) -->
-    <header class="app-header draggable">
-      <div class="header-left no-drag">
-        <!-- Status Badge (Click to Sync) -->
-        <div class="status-badge connected" id="statusBadge" title="Click to Force Sync & Reconnect Spotify">
+    <!-- Main Widget Surface -->
+    <div class="stealth-widget" id="stealthWidget">
+      
+      <!-- STATE 1: IDLE VIEW (Concept Hybrid - Image 1) -->
+      <div class="idle-bar" id="idleBar">
+        <div class="idle-wave-icon" id="idleWaveIcon" title="Spotify Audio Status">
+          <span class="wave-bar b1"></span>
+          <span class="wave-bar b2"></span>
+          <span class="wave-bar b3"></span>
+          <span class="wave-bar b4"></span>
+          <span class="wave-bar b5"></span>
+        </div>
+        <div class="idle-info">
+          <div class="idle-subtitle" id="idleSubtitle">Artist/Song</div>
+          <div class="idle-title" id="idleTitle">Waiting for Spotify...</div>
+        </div>
+        <div class="idle-right-actions no-drag">
+          <div class="idle-status" id="idleStatus">Idle</div>
+          <button class="idle-btn-hide" id="btnIdleHide" title="ย่อซ่อนลงถาดระบบ (Alt+M)">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+              <path d="M19 13H5v-2h14v2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- STATE 2: ACTIVE VIEW (Concept Hybrid - Image 2) -->
+      <div class="active-card" id="activeCard">
+        <!-- Top: Album Art + Song & Artist -->
+        <div class="active-top">
+          <div class="art-wrapper">
+            <img id="playerAlbumArt" class="player-art" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='38' height='38' viewBox='0 0 38 38'%3E%3Crect width='38' height='38' fill='%231f1f23'/%3E%3C/svg%3E" alt="Album Art">
+          </div>
+          <div class="track-details">
+            <div class="player-title" id="playerTitle">DEEP SKY</div>
+            <div class="player-artist" id="playerArtist">ORBITAL DRIFT</div>
+          </div>
+        </div>
+
+        <!-- Middle: Progress Bar -->
+        <div class="progress-section no-drag" id="progressSection" title="Click to seek">
+          <div class="progress-track" id="progressTrack">
+            <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Bottom: Transport Controls + Overflow Menu Button -->
+        <div class="active-bottom no-drag">
+          <div class="player-controls">
+            <button class="ctrl-btn" id="btnPrev" title="Previous Track">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn play-btn" id="btnPlayPause" title="Play / Pause (Space)">
+              <svg id="playIconSvg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn" id="btnNext" title="Next Track">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="active-right-actions">
+            <button class="ctrl-btn collapse-btn" id="btnCollapseBar" title="ย่อเป็นแถบจิ๋ว (Mini Bar)">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+                <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn hide-btn" id="btnActiveHide" title="ย่อซ่อนลงถาดระบบ (Alt+M)">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M19 13H5v-2h14v2z"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn overflow-btn" id="btnOverflowMenu" title="Options (...)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <circle cx="5" cy="12" r="2"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+                <circle cx="19" cy="12" r="2"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- OVERFLOW MENU (Consolidates all secondary controls) -->
+    <div class="overflow-menu hidden no-drag" id="overflowMenu">
+      <div class="menu-header">
+        <div class="status-badge connected" id="statusBadge" title="Click to Force Sync Spotify">
           <span class="status-dot"></span>
           <span class="status-text" id="statusText">CONNECTED</span>
         </div>
-        <button class="icon-btn refresh-btn" id="btnForceReconnect" title="Force Reconnect & Sync Spotify (Click if lyrics freeze)">
-          <span class="btn-icon" id="syncBtnIcon">🔄</span>
+        <button class="menu-icon-btn" id="btnForceReconnect" title="Force Reconnect & Sync">
+          <span id="syncBtnIcon">🔄</span>
         </button>
       </div>
 
-      <div class="header-right no-drag">
-        <button class="icon-btn" id="btnTranslateToggle" title="Toggle Emotional Thai Translation (แปลไทย) (Alt+T)">
-          <span class="btn-icon">🇹🇭</span>
-          <span class="btn-label" id="translateBtnLabel">แปลไทย</span>
+      <div class="menu-divider"></div>
+
+      <div class="menu-list">
+        <button class="menu-item-btn" id="btnSearchTrigger" title="Search tracks (Alt+Space)">
+          <span class="item-icon">🔍</span>
+          <span class="item-label">ค้นหาเพลง (Search)</span>
+          <kbd class="item-kbd">Alt+Space</kbd>
         </button>
-        <button class="icon-btn" id="btnKaraokeToggle" title="Toggle Synced Karaoke Lyrics (Alt+\ หรือ Alt+K หรือ Alt+L)">
-          <span class="btn-icon">🎤</span>
-          <span class="btn-label">Lyrics</span>
+
+        <button class="menu-item-btn" id="btnKaraokeToggle" title="Toggle Floating Lyrics Overlay (Alt+\)">
+          <span class="item-icon">🎤</span>
+          <span class="item-label">เนื้อเพลง (Lyrics Overlay)</span>
+          <span class="item-toggle-pill on" id="lyricsTogglePill">ON</span>
         </button>
-        <button class="icon-btn" id="btnLyricsBgToggle" title="Toggle Lyrics Background (Alt+B หรือคลิกขวาที่แถบเนื้อเพลง)">
-          <span class="btn-icon">🖼️</span>
-          <span class="btn-label" id="lyricsBgBtnLabel">BG</span>
+
+        <button class="menu-item-btn" id="btnTranslateToggle" title="Toggle Thai Translation (Alt+T)">
+          <span class="item-icon">🇹🇭</span>
+          <span class="item-label" id="translateBtnLabel">แปลเนื้อเพลงไทย</span>
+          <span class="item-toggle-pill on" id="translateTogglePill">ON</span>
         </button>
-        <button class="icon-btn" id="btnSneakToggle" title="Toggle Stealth Disguise Mode (Alt+M)">
-          <span class="btn-icon">🕶️</span>
-          <span class="btn-label" id="sneakBtnLabel">Sneak</span>
-        </button>
-        <button class="icon-btn" id="btnSettingsModal" title="Spotify Setup & Client ID">
-          <span class="btn-icon">⚙️</span>
-        </button>
-        <button class="icon-btn minimize-btn" id="btnMinimizeWindow" title="Hide to Tray (Alt+Space)">
-          <span class="btn-icon">━</span>
-        </button>
-        <button class="icon-btn close-btn-app" id="btnCloseAppWindow" title="Exit Application">
-          <span class="btn-icon">✕</span>
+
+        <button class="menu-item-btn" id="btnLyricsBgToggle" title="Toggle Lyrics Background (Alt+B)">
+          <span class="item-icon">🖼️</span>
+          <span class="item-label" id="lyricsBgBtnLabel">พื้นหลังเนื้อเพลง</span>
+          <span class="item-toggle-pill off" id="lyricsBgTogglePill">OFF</span>
         </button>
       </div>
-    </header>
 
-    <!-- Main Search Section -->
-    <div class="search-section">
-      <div class="search-box">
-        <svg class="search-icon-svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#1DB954" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <div class="menu-divider"></div>
+
+      <!-- Volume Row -->
+      <div class="menu-volume-row">
+        <button class="vol-btn" id="btnMuteToggle" title="Mute / Unmute (Alt+0)">
+          <svg id="volIconSvg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+        </button>
+        <input type="range" id="volSlider" class="vol-slider" min="0" max="100" value="70" title="Scroll wheel to adjust volume">
+        <span class="vol-percent" id="volPercent">70%</span>
+      </div>
+
+      <div class="menu-divider"></div>
+
+      <!-- Footer Action Buttons -->
+      <div class="menu-footer">
+        <button class="menu-action-btn" id="btnSettingsModal" title="Spotify Setup & Client ID">
+          <span>⚙️ ตั้งค่า</span>
+        </button>
+        <button class="menu-action-btn" id="btnMinimizeWindow" title="Hide to Tray (Alt+M)">
+          <span>━ ซ่อน</span>
+        </button>
+        <button class="menu-action-btn close-action" id="btnCloseAppWindow" title="Exit Application">
+          <span>✕ ปิด</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ON-DEMAND SPOTLIGHT SEARCH PALETTE (Triggered by Alt+Space) -->
+    <div class="search-palette hidden no-drag" id="searchPalette">
+      <div class="search-palette-header">
+        <svg class="search-palette-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input type="text" id="searchInput" placeholder="Search for tracks, artists, or playlists..." autocomplete="off" autofocus>
-        <div class="shortcut-hint">
-          <kbd>Alt</kbd>
-          <span class="shortcut-plus">+</span>
-          <kbd>Space</kbd>
+        <input type="text" id="searchInput" placeholder="Search track, artist, or playlist..." autocomplete="off">
+        <button class="search-palette-close" id="btnCloseSearch" title="Close (Esc)">✕</button>
+      </div>
+
+      <!-- Active Device Warning Bar -->
+      <div class="device-alert hidden" id="deviceAlert">
+        <span>No active Spotify device. Open Spotify Desktop!</span>
+        <button class="btn-retry" id="btnRefreshDevices">Refresh</button>
+      </div>
+
+      <!-- Results Container -->
+      <div class="results-container collapsed" id="resultsContainer">
+        <div class="empty-state" id="emptyState">
+          <p class="empty-title">Type a song or artist name to quick search</p>
+          <p class="empty-sub"><kbd>Enter</kbd> = Play &nbsp;|&nbsp; <kbd>Shift+Enter</kbd> = Queue &nbsp;|&nbsp; <kbd>Esc</kbd> = Close</p>
+        </div>
+        <div class="track-list" id="trackList"></div>
+      </div>
+    </div>
+
+    <!-- Backward Compatibility Hidden Elements (Kept so existing scripts/IPC run with zero errors) -->
+    <div style="display: none !important;">
+      <div id="miniPlayer"></div>
+      <div id="appTitle">Spotify Command</div>
+      <button id="btnSneakToggle"><span id="sneakBtnLabel">Sneak</span></button>
+      <div class="lyrics-container collapsed" id="lyricsContainer">
+        <div class="lyrics-scroll-box" id="lyricsScrollBox">
+          <div class="lyrics-placeholder" id="lyricsPlaceholder">Waiting for music to play...</div>
         </div>
       </div>
     </div>
 
-    <!-- Active Device Warning Bar -->
-    <div class="device-alert hidden" id="deviceAlert">
-      <span>⚠️ No active Spotify device detected. Open Spotify Desktop app!</span>
-      <button class="btn-retry" id="btnRefreshDevices">🔄 Refresh</button>
-    </div>
-
-    <!-- Search Results List -->
-    <div class="results-container collapsed" id="resultsContainer">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-icon">🎵</div>
-        <p class="empty-title">Type a song or artist name to quick search</p>
-        <p class="empty-sub"><kbd>Enter</kbd> = Play track &nbsp;|&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> = Add to Queue</p>
-      </div>
-      <div class="track-list" id="trackList"></div>
-    </div>
-
-    <!-- Synced Karaoke Lyrics Container -->
-    <div class="lyrics-container collapsed" id="lyricsContainer">
-      <div class="lyrics-scroll-box" id="lyricsScrollBox">
-        <div class="lyrics-placeholder" id="lyricsPlaceholder">Waiting for music to play...</div>
-      </div>
-    </div>
-
-    <!-- Footer Section (Mini Player) -->
-    <footer class="mini-player" id="miniPlayer">
-      <div class="now-playing">
-        <img id="playerAlbumArt" class="player-art" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' fill='%231a2336'/%3E%3C/svg%3E" alt="Album Art">
-        <div class="player-info">
-          <div class="player-title" id="playerTitle">Save Your Tears</div>
-          <div class="player-artist" id="playerArtist">The Weeknd</div>
-        </div>
-      </div>
-
-      <!-- Center Controls (Sleek Dark Theme) -->
-      <div class="player-controls">
-        <button class="ctrl-btn text-ctrl" id="btnPrev" title="Previous Track">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-        </button>
-        
-        <!-- Stealth Glass Play/Pause Button -->
-        <button class="ctrl-btn play-circle-btn" id="btnPlayPause" title="Play / Pause (Space)">
-          <svg class="play-icon" id="playIconSvg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-        </button>
-        
-        <button class="ctrl-btn text-ctrl" id="btnNext" title="Next Track">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-        </button>
-      </div>
-
-      <!-- Right Controls (Stealth Volume Slider & Mute Toggle) -->
-      <div class="player-right-controls">
-        <button class="ctrl-btn vol-btn" id="btnMuteToggle" title="Mute / Unmute (Alt+0) | Scroll Wheel to Adjust">
-          <svg id="volIconSvg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-        </button>
-        <input type="range" id="volSlider" class="vol-slider" min="0" max="100" value="70" title="Scroll mouse wheel anywhere on footer to change volume">
-        <span class="vol-percent" id="volPercent">70%</span>
-      </div>
-    </footer>
   </div>
 
-  <!-- Settings Modal -->
-  <div class="modal-overlay hidden" id="settingsModal">
+  <!-- Settings Modal (Glass Obsidian) -->
+  <div class="modal-overlay hidden no-drag" id="settingsModal">
     <div class="modal-card">
       <div class="modal-header">
         <h3>⚙️ Spotify Developer Setup</h3>
@@ -171,4 +254,3 @@
   <script src="app.js"></script>
 </body>
 </html>
-<!-- 999 -->

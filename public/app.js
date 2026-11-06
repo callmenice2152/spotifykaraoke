@@ -1,4 +1,4 @@
-// Spotify Stealth Quick Bar Logic
+// Spotify Stealth Quick Bar Logic - Fusion Hybrid Edition (Image 1 Idle + Image 2 Active)
 
 const SCOPES = 'user-modify-playback-state user-read-playback-state user-read-currently-playing user-top-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private';
 
@@ -16,28 +16,88 @@ let currentVolume = 70;
 let previousVolume = 70;
 let isMuted = false;
 
-// Lyrics & Sync State
+// Lyrics & Playback Timing State
 let lyricsList = []; // parsed synced lyrics: [{ timeMs, text }]
 let currentTrackId = '';
 let currentTrackProgress = 0;
+let currentTrackDuration = 0;
 let lastProgressUpdate = 0;
 let isPlaying = false;
 let lyricsSyncTimer = null;
-let isKaraokeActive = true; // starts as true because lyricsWindow auto-shows on launch
+let isKaraokeActive = true;
+let lyricsBgEnabled = false;
 
-// DOM Elements
+// UI Interaction State
+let isPinnedActive = localStorage.getItem('spotify_pinned_active') !== 'false'; // Defaults to TRUE so user sees the big screen
+let isWidgetHovered = false;
+let isMenuOpen = false;
+let isSearchOpen = false;
+let collapseTimer = null;
+
+// DOM Elements: Core Shell & Widgets
+const stealthApp = document.getElementById('stealthApp');
+const stealthWidget = document.getElementById('stealthWidget');
+const idleBar = document.getElementById('idleBar');
+const activeCard = document.getElementById('activeCard');
+const idleSubtitle = document.getElementById('idleSubtitle');
+const idleTitle = document.getElementById('idleTitle');
+const idleStatus = document.getElementById('idleStatus');
+const idleWaveIcon = document.getElementById('idleWaveIcon');
+
+// Overflow Menu Elements
+const btnOverflowMenu = document.getElementById('btnOverflowMenu');
+const overflowMenu = document.getElementById('overflowMenu');
+const btnSearchTrigger = document.getElementById('btnSearchTrigger');
+const lyricsTogglePill = document.getElementById('lyricsTogglePill');
+const translateTogglePill = document.getElementById('translateTogglePill');
+const lyricsBgTogglePill = document.getElementById('lyricsBgTogglePill');
+
+// Spotlight Search Elements
+const searchPalette = document.getElementById('searchPalette');
 const searchInput = document.getElementById('searchInput');
+const btnCloseSearch = document.getElementById('btnCloseSearch');
 const trackList = document.getElementById('trackList');
 const emptyState = document.getElementById('emptyState');
 const resultsContainer = document.getElementById('resultsContainer');
-const statusBadge = document.getElementById('statusBadge');
-const statusText = document.getElementById('statusText');
 const deviceAlert = document.getElementById('deviceAlert');
 const btnRefreshDevices = document.getElementById('btnRefreshDevices');
+
+// Active Player Elements (Image 2)
+const playerAlbumArt = document.getElementById('playerAlbumArt');
+const playerTitle = document.getElementById('playerTitle');
+const playerArtist = document.getElementById('playerArtist');
+const progressSection = document.getElementById('progressSection');
+const progressTrack = document.getElementById('progressTrack');
+const progressFill = document.getElementById('progressFill');
+const btnPlayPause = document.getElementById('btnPlayPause');
+const playIconSvg = document.getElementById('playIconSvg');
+const btnPrev = document.getElementById('btnPrev');
+const btnNext = document.getElementById('btnNext');
+
+// Volume Controls
+const volSlider = document.getElementById('volSlider');
+const volPercent = document.getElementById('volPercent');
+const btnMuteToggle = document.getElementById('btnMuteToggle');
+const volIconSvg = document.getElementById('volIconSvg');
+
+// Header Status & Actions
+const statusBadge = document.getElementById('statusBadge');
+const statusText = document.getElementById('statusText');
+const btnForceReconnect = document.getElementById('btnForceReconnect');
+const syncBtnIcon = document.getElementById('syncBtnIcon');
 const btnSneakToggle = document.getElementById('btnSneakToggle');
 const sneakBtnLabel = document.getElementById('sneakBtnLabel');
 const btnMinimizeWindow = document.getElementById('btnMinimizeWindow');
 const btnCloseAppWindow = document.getElementById('btnCloseAppWindow');
+
+// Feature Toggles
+const btnTranslateToggle = document.getElementById('btnTranslateToggle');
+const translateBtnLabel = document.getElementById('translateBtnLabel');
+const btnKaraokeToggle = document.getElementById('btnKaraokeToggle');
+const btnLyricsBgToggle = document.getElementById('btnLyricsBgToggle');
+const lyricsBgBtnLabel = document.getElementById('lyricsBgBtnLabel');
+
+// Settings Modal
 const btnSettingsModal = document.getElementById('btnSettingsModal');
 const settingsModal = document.getElementById('settingsModal');
 const clientIdInput = document.getElementById('clientIdInput');
@@ -46,41 +106,75 @@ const displayRedirectUri = document.getElementById('displayRedirectUri');
 const btnSaveSettings = document.getElementById('btnSaveSettings');
 const btnCancelSettings = document.getElementById('btnCancelSettings');
 const btnCloseSettings = document.getElementById('btnCloseSettings');
-const appTitle = document.getElementById('appTitle');
 
-// Karaoke / Lyrics DOM
-const btnKaraokeToggle = document.getElementById('btnKaraokeToggle');
+// Compatibility / Toast Elements
+const appTitle = document.getElementById('appTitle');
+const miniPlayer = document.getElementById('miniPlayer');
 const lyricsContainer = document.getElementById('lyricsContainer');
 const lyricsScrollBox = document.getElementById('lyricsScrollBox');
 const lyricsPlaceholder = document.getElementById('lyricsPlaceholder');
-
-// Toast Elements
 const toastBanner = document.getElementById('toastBanner');
 const toastIcon = document.getElementById('toastIcon');
 const toastMessage = document.getElementById('toastMessage');
-
-// Mini Player Elements
-const miniPlayer = document.getElementById('miniPlayer');
-const playerAlbumArt = document.getElementById('playerAlbumArt');
-const playerTitle = document.getElementById('playerTitle');
-const playerArtist = document.getElementById('playerArtist');
-const btnPlayPause = document.getElementById('btnPlayPause');
-const playIconSvg = document.getElementById('playIconSvg');
-const btnPrev = document.getElementById('btnPrev');
-const btnNext = document.getElementById('btnNext');
-const volSlider = document.getElementById('volSlider');
-const volPercent = document.getElementById('volPercent');
-const btnMuteToggle = document.getElementById('btnMuteToggle');
-const volIconSvg = document.getElementById('volIconSvg');
 
 // Electron IPC Helper
 function notifyWindowResize(height) {
   try {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('resize-window', height);
+      ipcRenderer.send('resize-window', { width: 326, height: Math.ceil(height) });
     }
   } catch (err) {}
+}
+
+// Visual State Orchestrator (Idle vs Active vs Menu vs Search)
+function updateWidgetVisualState() {
+  if (isSearchOpen) {
+    stealthWidget.classList.add('is-active');
+    searchPalette.classList.remove('hidden');
+    overflowMenu.classList.add('hidden');
+    btnOverflowMenu.classList.remove('active');
+    const isCollapsed = resultsContainer.classList.contains('collapsed');
+    notifyWindowResize(isCollapsed ? 120 : 380);
+    return;
+  }
+
+  searchPalette.classList.add('hidden');
+
+  if (isMenuOpen) {
+    stealthWidget.classList.add('is-active');
+    overflowMenu.classList.remove('hidden');
+    btnOverflowMenu.classList.add('active');
+    notifyWindowResize(310);
+    return;
+  }
+
+  overflowMenu.classList.add('hidden');
+  btnOverflowMenu.classList.remove('active');
+
+  if (isPinnedActive || isWidgetHovered) {
+    stealthWidget.classList.add('is-active');
+    notifyWindowResize(115);
+  } else {
+    stealthWidget.classList.remove('is-active');
+    notifyWindowResize(46);
+  }
+}
+
+// Toggle Pill Badges in Overflow Menu
+function updatePillStates() {
+  if (lyricsTogglePill) {
+    lyricsTogglePill.textContent = isKaraokeActive ? 'ON' : 'OFF';
+    lyricsTogglePill.className = `item-toggle-pill ${isKaraokeActive ? 'on' : 'off'}`;
+  }
+  if (translateTogglePill) {
+    translateTogglePill.textContent = translationEnabled ? 'ON' : 'OFF';
+    translateTogglePill.className = `item-toggle-pill ${translationEnabled ? 'on' : 'off'}`;
+  }
+  if (lyricsBgTogglePill) {
+    lyricsBgTogglePill.textContent = lyricsBgEnabled ? 'ON' : 'OFF';
+    lyricsBgTogglePill.className = `item-toggle-pill ${lyricsBgEnabled ? 'on' : 'off'}`;
+  }
 }
 
 // Initialize
@@ -88,19 +182,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Sync Session from Server
   await syncSessionFromServer();
 
-  // Save default client ID & redirect URI into localStorage
   localStorage.setItem('spotify_client_id', spotifyClientId);
   localStorage.setItem('spotify_redirect_uri', spotifyRedirectUri);
 
-  // Update UI inputs
-  clientIdInput.value = spotifyClientId;
-  redirectUriInput.value = spotifyRedirectUri;
+  if (clientIdInput) clientIdInput.value = spotifyClientId;
+  if (redirectUriInput) redirectUriInput.value = spotifyRedirectUri;
   if (displayRedirectUri) displayRedirectUri.textContent = spotifyRedirectUri;
 
-  // Set default initial collapsed state & height
+  // Initial State: Idle Bar
   resultsContainer.classList.add('collapsed');
-  lyricsContainer.classList.add('collapsed');
-  notifyWindowResize(210);
+  updateWidgetVisualState();
+  updatePillStates();
 
   // Handle OAuth Callback
   const urlParams = new URLSearchParams(window.location.search);
@@ -159,21 +251,16 @@ async function saveSessionToServer() {
 
 // Force Reconnect & Player Sync
 async function forceSyncAndReconnect() {
-  const syncBtnIcon = document.getElementById('syncBtnIcon');
   if (syncBtnIcon) syncBtnIcon.classList.add('spinning');
   showToastNotification('🔄', 'Syncing with Spotify...');
 
   try {
-    // 1. Force Refresh Token
     if (spotifyRefreshToken) {
       await refreshAccessToken();
     }
-
-    // 2. Reset Null Poll Counter & Fetch Currently Playing
     consecutiveNullPolls = 0;
-    currentTrackId = null; // force lyrics reload
+    currentTrackId = null;
     await fetchCurrentlyPlaying();
-
     updateConnectionStatus(true, 'CONNECTED');
     showToastNotification('✅', 'Synced with Spotify!');
   } catch (err) {
@@ -184,35 +271,195 @@ async function forceSyncAndReconnect() {
   }
 }
 
-function setupEventListeners() {
-  // Search Input
-  searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchDebounceTimer);
-    const query = e.target.value.trim();
-    if (!query) {
-      currentSearchResults = [];
-      renderSearchResults([]);
-      return;
+function openSearchPalette() {
+  isSearchOpen = true;
+  isMenuOpen = false;
+  updateWidgetVisualState();
+  setTimeout(() => {
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
     }
-    searchDebounceTimer = setTimeout(() => performSearch(query), 250);
-  });
+  }, 50);
+}
 
-  // Keyboard Shortcuts
+function closeSearchPalette() {
+  isSearchOpen = false;
+  if (searchInput) searchInput.value = '';
+  currentSearchResults = [];
+  renderSearchResults([]);
+  updateWidgetVisualState();
+}
+
+function setupEventListeners() {
+  // Smooth JS Window Dragging without blocking click/hover events
+  let isDragging = false;
+  let dragStartX = 0, dragStartY = 0;
+  let hasDragged = false;
+
+  if (stealthWidget) {
+    stealthWidget.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.no-drag') || e.target.closest('#overflowMenu') || e.target.closest('#searchPalette')) {
+        return;
+      }
+      isDragging = true;
+      hasDragged = false;
+      dragStartX = e.screenX;
+      dragStartY = e.screenY;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaX = e.screenX - dragStartX;
+      const deltaY = e.screenY - dragStartY;
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+        hasDragged = true;
+        dragStartX = e.screenX;
+        dragStartY = e.screenY;
+        if (window.require) {
+          window.require('electron').ipcRenderer.send('move-window-by', { deltaX, deltaY });
+        }
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      setTimeout(() => { isDragging = false; }, 50);
+    });
+  }
+
+  // Click on Idle Bar to Expand & Pin Big Player
+  if (idleBar) {
+    idleBar.addEventListener('click', (e) => {
+      if (hasDragged) return;
+      if (e.target.closest('button')) return;
+      isPinnedActive = true;
+      localStorage.setItem('spotify_pinned_active', 'true');
+      updateWidgetVisualState();
+    });
+  }
+
+  // Click on Collapse Button to Shrink to Mini Bar
+  const btnCollapseBar = document.getElementById('btnCollapseBar');
+  if (btnCollapseBar) {
+    btnCollapseBar.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isPinnedActive = false;
+      localStorage.setItem('spotify_pinned_active', 'false');
+      isMenuOpen = false;
+      updateWidgetVisualState();
+    });
+  }
+
+  // Click on Hide/Minimize Buttons to tuck away to System Tray (ย่อเก็บ)
+  const btnIdleHide = document.getElementById('btnIdleHide');
+  const btnActiveHide = document.getElementById('btnActiveHide');
+
+  function hideAppToTray(e) {
+    if (e) e.stopPropagation();
+    if (window.require) {
+      window.require('electron').ipcRenderer.send('hide-main-window');
+    } else {
+      window.close();
+    }
+  }
+
+  if (btnIdleHide) btnIdleHide.addEventListener('click', hideAppToTray);
+  if (btnActiveHide) btnActiveHide.addEventListener('click', hideAppToTray);
+
+  // Hover transitions between State 1 (Idle) and State 2 (Active)
+  if (stealthApp) {
+    stealthApp.addEventListener('mouseenter', () => {
+      clearTimeout(collapseTimer);
+      isWidgetHovered = true;
+      updateWidgetVisualState();
+    });
+
+    stealthApp.addEventListener('mouseleave', () => {
+      collapseTimer = setTimeout(() => {
+        isWidgetHovered = false;
+        updateWidgetVisualState();
+      }, 220);
+    });
+
+    // Mouse wheel anywhere on widget controls volume
+    stealthApp.addEventListener('wheel', (e) => {
+      if (e.target.closest('#settingsModal') || e.target.closest('#resultsContainer')) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 5 : -5;
+      setVolume(currentVolume + delta);
+    }, { passive: false });
+  }
+
+  // Overflow Menu Toggle (...)
+  if (btnOverflowMenu) {
+    btnOverflowMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isMenuOpen = !isMenuOpen;
+      if (isMenuOpen) isSearchOpen = false;
+      updateWidgetVisualState();
+    });
+  }
+
+  // Search Palette Trigger
+  if (btnSearchTrigger) {
+    btnSearchTrigger.addEventListener('click', () => {
+      openSearchPalette();
+    });
+  }
+
+  if (btnCloseSearch) {
+    btnCloseSearch.addEventListener('click', () => {
+      closeSearchPalette();
+    });
+  }
+
+  // Search Input live typing
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchDebounceTimer);
+      const query = e.target.value.trim();
+      if (!query) {
+        currentSearchResults = [];
+        renderSearchResults([]);
+        return;
+      }
+      searchDebounceTimer = setTimeout(() => performSearch(query), 250);
+    });
+  }
+
+  // Progress Bar Seek Interaction
+  if (progressSection) {
+    progressSection.addEventListener('click', (e) => {
+      if (!currentTrackDuration) return;
+      const rect = progressTrack.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const pct = Math.min(1, Math.max(0, clickX / rect.width));
+      const targetMs = Math.round(pct * currentTrackDuration);
+      spotifyApiCall(`/v1/me/player/seek?position_ms=${targetMs}`, 'PUT').then(success => {
+        if (success) {
+          currentTrackProgress = targetMs;
+          lastProgressUpdate = Date.now();
+          updateProgressUI();
+        }
+      });
+    });
+  }
+
+  // Global Keyboard Shortcuts
   document.addEventListener('keydown', handleGlobalKeydown);
 
-  // Buttons
-  const btnForceReconnect = document.getElementById('btnForceReconnect');
+  // Sync / Reconnect
   if (btnForceReconnect) btnForceReconnect.addEventListener('click', forceSyncAndReconnect);
   if (statusBadge) statusBadge.addEventListener('click', forceSyncAndReconnect);
-  if (btnSettingsModal) btnSettingsModal.addEventListener('click', showSettingsModal);
-  btnCancelSettings.addEventListener('click', hideSettingsModal);
-  btnCloseSettings.addEventListener('click', hideSettingsModal);
-  btnSaveSettings.addEventListener('click', saveSettings);
-  btnRefreshDevices.addEventListener('click', refreshActiveDevices);
-  btnSneakToggle.addEventListener('click', toggleSneakMode);
 
-  // Translate Toggle
-  const btnTranslateToggle = document.getElementById('btnTranslateToggle');
+  // Settings
+  if (btnSettingsModal) btnSettingsModal.addEventListener('click', showSettingsModal);
+  if (btnCancelSettings) btnCancelSettings.addEventListener('click', hideSettingsModal);
+  if (btnCloseSettings) btnCloseSettings.addEventListener('click', hideSettingsModal);
+  if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
+  if (btnRefreshDevices) btnRefreshDevices.addEventListener('click', refreshActiveDevices);
+
+  // Translation Toggle
   if (btnTranslateToggle) {
     updateTranslateBtnState();
     btnTranslateToggle.addEventListener('click', toggleTranslation);
@@ -224,7 +471,6 @@ function setupEventListeners() {
   }
 
   // Lyrics Background Toggle
-  const btnLyricsBgToggle = document.getElementById('btnLyricsBgToggle');
   if (btnLyricsBgToggle) {
     btnLyricsBgToggle.addEventListener('click', () => {
       if (window.require) {
@@ -234,90 +480,125 @@ function setupEventListeners() {
     });
   }
 
+  // Electron IPC Listeners
   if (window.require) {
     try {
       const { ipcRenderer } = window.require('electron');
+      
+      ipcRenderer.on('toggle-search-palette', () => {
+        if (isSearchOpen) {
+          closeSearchPalette();
+        } else {
+          openSearchPalette();
+        }
+      });
+
       ipcRenderer.on('toggle-translation-hotkey', () => {
         toggleTranslation();
       });
+
       ipcRenderer.on('lyrics-bg-changed', (event, isEnabled) => {
+        lyricsBgEnabled = isEnabled;
         showToastNotification(isEnabled ? '🖼️' : '⚪', isEnabled ? 'เปิดพื้นหลังเนื้อเพลงแล้ว' : 'ปิดพื้นหลังเนื้อเพลงแล้ว');
-        const label = document.getElementById('lyricsBgBtnLabel');
-        if (label) label.textContent = isEnabled ? 'BG เปิด' : 'BG';
+        if (lyricsBgBtnLabel) lyricsBgBtnLabel.textContent = isEnabled ? 'BG เปิด' : 'BG';
+        updatePillStates();
       });
+
       ipcRenderer.on('lyrics-visibility-changed', (event, isVisible) => {
         isKaraokeActive = isVisible;
-        if (btnKaraokeToggle) {
-          if (isVisible) {
-            btnKaraokeToggle.classList.add('active');
-          } else {
-            btnKaraokeToggle.classList.remove('active');
-          }
-        }
+        updatePillStates();
       });
     } catch (e) {}
   }
 
-  // Minimize (Hide to Tray)
+  // Minimize (Panic Hide to Tray)
   if (btnMinimizeWindow) {
     btnMinimizeWindow.addEventListener('click', () => {
-      window.close();
+      if (window.require) {
+        window.require('electron').ipcRenderer.send('hide-main-window');
+      } else {
+        window.close();
+      }
     });
   }
 
   // Close (Exit App)
   if (btnCloseAppWindow) {
     btnCloseAppWindow.addEventListener('click', () => {
-      fetch('/api/clear-session').catch(() => {});
-      window.close();
+      if (window.require) {
+        window.require('electron').ipcRenderer.send('quit-app');
+      } else {
+        window.close();
+      }
     });
   }
 
-  // Volume Slider Dragging
+  // Volume Slider
   if (volSlider) {
     volSlider.addEventListener('input', (e) => {
       setVolume(parseInt(e.target.value, 10));
     });
   }
 
-  // Mute / Unmute Button
+  // Mute / Unmute
   if (btnMuteToggle) {
     btnMuteToggle.addEventListener('click', toggleMute);
   }
 
-  // Mouse Wheel Volume Scroll on Footer
-  if (miniPlayer) {
-    miniPlayer.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 5 : -5;
-      setVolume(currentVolume + delta);
-    }, { passive: false });
-  }
-
   // Player controls
-  btnPlayPause.addEventListener('click', togglePlayPause);
-  btnPrev.addEventListener('click', () => spotifyApiCall('/v1/me/player/previous', 'POST'));
-  btnNext.addEventListener('click', () => spotifyApiCall('/v1/me/player/next', 'POST'));
+  if (btnPlayPause) btnPlayPause.addEventListener('click', togglePlayPause);
+  if (btnPrev) btnPrev.addEventListener('click', () => spotifyApiCall('/v1/me/player/previous', 'POST'));
+  if (btnNext) btnNext.addEventListener('click', () => spotifyApiCall('/v1/me/player/next', 'POST'));
+}
+
+// Progress Scrub & Idle Timestamp UI Update
+function updateProgressUI() {
+  if (!currentTrackDuration) return;
+  const elapsed = isPlaying ? (Date.now() - lastProgressUpdate) : 0;
+  const currentMs = currentTrackProgress + elapsed;
+  const pct = Math.min(100, Math.max(0, (currentMs / currentTrackDuration) * 100));
+  
+  if (progressFill) progressFill.style.width = pct + '%';
+
+  if (idleStatus) {
+    if (isPlaying) {
+      const curSec = Math.floor(currentMs / 1000);
+      const min = Math.floor(curSec / 60);
+      const sec = String(curSec % 60).padStart(2, '0');
+      idleStatus.textContent = `${min}:${sec}`;
+    } else {
+      idleStatus.textContent = 'Paused';
+    }
+  }
 }
 
 // Global Keydown Handler
 function handleGlobalKeydown(e) {
+  // Alt+Space -> Toggle On-Demand Search Palette
+  if (e.altKey && (e.code === 'Space' || e.key === ' ')) {
+    e.preventDefault();
+    if (isSearchOpen) closeSearchPalette();
+    else openSearchPalette();
+    return;
+  }
+
   // Alt+S -> Focus Search Input
   if (e.altKey && (e.key === 's' || e.key === 'S')) {
     e.preventDefault();
-    searchInput.focus();
-    searchInput.select();
+    openSearchPalette();
     return;
   }
 
-  // Alt+M -> Toggle Sneak Mode
+  // Alt+M -> Panic-Hide to Tray
   if (e.altKey && (e.key === 'm' || e.key === 'M')) {
     e.preventDefault();
-    toggleSneakMode();
+    if (window.require) {
+      window.require('electron').ipcRenderer.send('hide-main-window');
+    }
     return;
   }
 
-  // Alt+K, Alt+\, Alt+L, Alt+`, Alt+F9 -> Toggle Karaoke Lyrics
+  // Lyrics Overlay Toggle Hotkeys
   if (e.altKey && (e.key === 'k' || e.key === 'K' || e.key === 'l' || e.key === 'L' || e.key === '\\' || e.code === 'Backslash' || e.keyCode === 220 || e.key === '`' || e.code === 'Backquote' || e.key === 'F9')) {
     e.preventDefault();
     toggleKaraoke();
@@ -331,15 +612,13 @@ function handleGlobalKeydown(e) {
     return;
   }
 
-  // Alt+Up -> Volume Up (+10%)
+  // Alt+Up / Alt+Down -> Volume
   if (e.altKey && e.key === 'ArrowUp') {
     e.preventDefault();
     setVolume(currentVolume + 10);
     showToastNotification('🔊', `Volume: ${currentVolume}%`);
     return;
   }
-
-  // Alt+Down -> Volume Down (-10%)
   if (e.altKey && e.key === 'ArrowDown') {
     e.preventDefault();
     setVolume(currentVolume - 10);
@@ -354,20 +633,29 @@ function handleGlobalKeydown(e) {
     return;
   }
 
-  // Esc -> Clear search/lyrics or blur
+  // Esc -> Close search, close menu, or panic hide
   if (e.key === 'Escape') {
-    if (document.activeElement === searchInput && searchInput.value) {
-      searchInput.value = '';
-      currentSearchResults = [];
-      renderSearchResults([]);
+    if (settingsModal && !settingsModal.classList.contains('hidden')) {
+      hideSettingsModal();
+    } else if (isSearchOpen) {
+      closeSearchPalette();
+    } else if (isMenuOpen) {
+      isMenuOpen = false;
+      updateWidgetVisualState();
+    } else if (isPinnedActive) {
+      isPinnedActive = false;
+      localStorage.setItem('spotify_pinned_active', 'false');
+      updateWidgetVisualState();
     } else {
-      window.close();
+      if (window.require) {
+        window.require('electron').ipcRenderer.send('hide-main-window');
+      }
     }
     return;
   }
 
-  // Navigation when search input is focused or active
-  if (currentSearchResults.length > 0) {
+  // Navigation inside Search Results
+  if (isSearchOpen && currentSearchResults.length > 0) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       selectedTrackIndex = Math.min(selectedTrackIndex + 1, currentSearchResults.length - 1);
@@ -389,6 +677,7 @@ function handleGlobalKeydown(e) {
         } else {
           playMediaContext(item.uri, item.name, item.type);
         }
+        closeSearchPalette();
       }
     }
   }
@@ -434,7 +723,7 @@ function updateVolIcon(muted) {
   }
 }
 
-// Sneak Mode Toggle
+// Sneak Mode Disguise Toggle
 function toggleSneakMode() {
   document.body.classList.toggle('sneak-mode');
   const isSneak = document.body.classList.contains('sneak-mode');
@@ -446,14 +735,10 @@ function toggleSneakMode() {
   }
 }
 
-// Karaoke Toggle
+// Karaoke Overlay Toggle
 function toggleKaraoke() {
   isKaraokeActive = !isKaraokeActive;
-  if (isKaraokeActive) {
-    btnKaraokeToggle.classList.add('active');
-  } else {
-    btnKaraokeToggle.classList.remove('active');
-  }
+  updatePillStates();
   if (window.require) {
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.send('toggle-lyrics-view');
@@ -588,7 +873,6 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
 
   let res = await fetch(`https://api.spotify.com${endpoint}`, options);
 
-  // Handle Token Expiry
   if (res.status === 401) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
@@ -600,7 +884,6 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
     }
   }
 
-  // Handle 429 Rate Limit gracefully without breaking playback state or showing repetitive toast popups
   if (res.status === 429) {
     const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
     console.warn(`Spotify 429 Rate Limited (${retryAfter}s).`);
@@ -618,7 +901,7 @@ async function spotifyApiCall(endpoint, method = 'GET', body = null) {
   }
 }
 
-// Perform Multi-Category Search (Tracks, Artists, Playlists)
+// Search
 async function performSearch(query) {
   const data = await spotifyApiCall(`/v1/search?q=${encodeURIComponent(query)}&type=track,artist,playlist&limit=4`);
   if (data) {
@@ -626,27 +909,22 @@ async function performSearch(query) {
     const artists = (data.artists?.items || []).map(a => ({ ...a, type: 'artist' }));
     const playlists = (data.playlists?.items || []).map(p => ({ ...p, type: 'playlist' }));
 
-    // Combined search results list
     currentSearchResults = [...tracks, ...artists, ...playlists];
     selectedTrackIndex = currentSearchResults.length > 0 ? 0 : -1;
     renderSearchResults(currentSearchResults);
   }
 }
 
-// Render Search Results with Badges
 function renderSearchResults(items) {
   trackList.innerHTML = '';
   if (items.length === 0) {
     resultsContainer.classList.add('collapsed');
-    if (!isKaraokeActive) notifyWindowResize(210);
+    if (isSearchOpen) notifyWindowResize(120);
     return;
   }
   
-  // Close lyrics panel when displaying search results to prevent overlay overlap
-  if (isKaraokeActive) toggleKaraoke();
-  
   resultsContainer.classList.remove('collapsed');
-  notifyWindowResize(460);
+  if (isSearchOpen) notifyWindowResize(380);
 
   items.forEach((item, index) => {
     const row = document.createElement('div');
@@ -675,7 +953,7 @@ function renderSearchResults(items) {
 
     row.innerHTML = `
       <div class="track-left">
-        <img class="track-art ${isArtist ? 'artist-avatar' : ''}" src="${artUrl || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'38\' height=\'38\' viewBox=\'0 0 38 38\'%3E%3Crect width=\'38\' height=\'38\' fill=\'%23222\'/%3E%3C/svg%3E'}" alt="Art">
+        <img class="track-art ${isArtist ? 'artist-avatar' : ''}" src="${artUrl || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'30\' height=\'30\' viewBox=\'0 0 30 30\'%3E%3Crect width=\'30\' height=\'30\' fill=\'%23222\'/%3E%3C/svg%3E'}" alt="Art">
         <div class="track-details">
           <span class="track-name">${escapeHtml(titleText)} <span class="type-tag">${badgeText}</span></span>
           <span class="track-artist">${escapeHtml(subtitleText)}</span>
@@ -693,6 +971,7 @@ function renderSearchResults(items) {
       } else {
         playMediaContext(item.uri, item.name, item.type);
       }
+      closeSearchPalette();
     });
 
     row.addEventListener('mouseenter', () => {
@@ -748,52 +1027,72 @@ async function addToQueue(trackUri, trackName) {
 // Play / Pause Toggle
 async function togglePlayPause() {
   const state = await spotifyApiCall('/v1/me/player');
-  if (state) {
-    const endpoint = state.is_playing ? '/v1/me/player/pause' : '/v1/me/player/play';
-    await spotifyApiCall(endpoint, 'PUT');
-    setTimeout(fetchCurrentlyPlaying, 300);
+  if (!state || !state.device) {
+    await refreshActiveDevices();
+    return;
+  }
+
+  if (state.is_playing) {
+    await spotifyApiCall('/v1/me/player/pause', 'PUT');
+    isPlaying = false;
+    if (stealthWidget) stealthWidget.classList.remove('is-playing');
+    playIconSvg.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    updateProgressUI();
+  } else {
+    await spotifyApiCall('/v1/me/player/play', 'PUT');
+    isPlaying = true;
+    if (stealthWidget) stealthWidget.classList.add('is-playing');
+    playIconSvg.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+    lastProgressUpdate = Date.now();
+    updateProgressUI();
   }
 }
 
-// Active Devices Check
+// Refresh Available Devices
 async function refreshActiveDevices() {
   const data = await spotifyApiCall('/v1/me/player/devices');
-  if (data && data.devices) {
-    const activeDevice = data.devices.find(d => d.is_active) || data.devices[0];
-    if (activeDevice) {
-      deviceAlert.classList.add('hidden');
-      updateConnectionStatus(true, 'CONNECTED');
-    } else {
-      deviceAlert.classList.remove('hidden');
-      updateConnectionStatus(true, 'OPEN SPOTIFY APP');
+  if (data && data.devices && data.devices.length > 0) {
+    if (deviceAlert) deviceAlert.classList.add('hidden');
+    const active = data.devices.find(d => d.is_active);
+    if (!active && data.devices[0]) {
+      await spotifyApiCall('/v1/me/player', 'PUT', { device_ids: [data.devices[0].id], play: false });
     }
+  } else {
+    if (deviceAlert) deviceAlert.classList.remove('hidden');
   }
 }
 
-// Fetch synced lyrics (Direct IPC from Electron Main Process for 100% Zero-Latency & Zero-CORS Reliability)
-async function fetchSyncedLyrics(trackName, artistName, trackId, durationSec = null) {
-  lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">Loading lyrics...</div>';
-  lyricsList = [];
-  lastActiveIndex = -1;
-
-  // 1. Native Electron IPC handle (Direct Node Process)
+// Synced Karaoke Lyrics Fetching Engine (Preserved exactly as-is)
+async function fetchSyncedLyrics(track, artist, trackId, durationSec = null) {
   try {
-    if (window.require) {
-      const { ipcRenderer } = window.require('electron');
-      const lyrics = await ipcRenderer.invoke('get-lyrics', { track: trackName, artist: artistName, duration: durationSec });
-      if (lyrics) {
-        parseLrcLines(lyrics);
-        renderLyrics();
-        return;
-      }
+    const res = await fetchBackendLyrics(track, artist, durationSec);
+    if (res && res.lyrics) {
+      parseLrcLines(res.lyrics);
+      renderLyrics();
+      return;
+    }
+
+    const cleanTrack = track.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/-.*/g, '').trim();
+    const cleanArtist = artist.split(',')[0].trim();
+    const fallbackRes = await fetchBackendLyrics(cleanTrack, cleanArtist, durationSec);
+    if (fallbackRes && fallbackRes.lyrics) {
+      parseLrcLines(fallbackRes.lyrics);
+      renderLyrics();
+      return;
     }
   } catch (err) {
-    console.warn('IPC lyrics fetch failed, trying HTTP...', err);
+    console.error('Lyrics Fetch Error:', err);
   }
 
-  // 2. HTTP Fallback
+  showNoLyricsPlaceholder();
+}
+
+async function fetchBackendLyrics(track, artist, durationSec = null) {
   try {
-    const url = `/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artistName)}${durationSec ? `&duration=${encodeURIComponent(durationSec)}` : ''}`;
+    let url = `/api/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}`;
+    if (durationSec) {
+      url += `&duration=${Math.round(durationSec)}`;
+    }
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -842,18 +1141,8 @@ function parseLrcLines(lrcText) {
   lyricsList.sort((a, b) => a.timeMs - b.timeMs);
 }
 
-function parsePlainLyrics(plainText) {
-  const lines = plainText.split('\n');
-  lyricsList = [];
-  lines.forEach((line, index) => {
-    if (line.trim()) {
-      lyricsList.push({ timeMs: index * 4000, text: line.trim() });
-    }
-  });
-}
-
 function showNoLyricsPlaceholder() {
-  lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">No lyrics</div>';
+  if (lyricsScrollBox) lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">No lyrics</div>';
   if (window.require) {
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.send('update-lyric-text', 'No lyrics');
@@ -863,17 +1152,10 @@ function showNoLyricsPlaceholder() {
 let translationEnabled = localStorage.getItem('spotify_translation_enabled') !== 'false';
 
 function updateTranslateBtnState() {
-  const btnTranslateToggle = document.getElementById('btnTranslateToggle');
-  const translateBtnLabel = document.getElementById('translateBtnLabel');
-  if (btnTranslateToggle) {
-    if (translationEnabled) {
-      btnTranslateToggle.classList.add('active');
-      if (translateBtnLabel) translateBtnLabel.textContent = 'แปลไทย';
-    } else {
-      btnTranslateToggle.classList.remove('active');
-      if (translateBtnLabel) translateBtnLabel.textContent = 'ปิดแปล';
-    }
+  if (translateBtnLabel) {
+    translateBtnLabel.textContent = translationEnabled ? 'แปลเนื้อเพลงไทย' : 'ปิดแปลภาษา';
   }
+  updatePillStates();
 }
 
 function toggleTranslation() {
@@ -924,6 +1206,7 @@ async function fetchLineTranslation(text) {
 }
 
 function renderLyrics() {
+  if (!lyricsScrollBox) return;
   lyricsScrollBox.innerHTML = '';
   if (lyricsList.length === 0) {
     showNoLyricsPlaceholder();
@@ -964,23 +1247,25 @@ function renderLyrics() {
   });
 }
 
-// Lead-time offset for karaoke anticipation (450ms pre-roll so text appears right before singer sings)
+// 450ms pre-roll lead-time for synced lyrics
 const KARAOKE_LEAD_OFFSET = 450;
 let currentDisplayedLyric = null;
 let lastPreRollIndex = -1;
 
-// Real-Time Local Millisecond Lyrics Clock loop
 function startLocalLyricsClock() {
   if (lyricsSyncTimer) clearInterval(lyricsSyncTimer);
   lastPreRollIndex = -1;
   lyricsSyncTimer = setInterval(() => {
-    if (!isPlaying || lyricsList.length === 0) return;
+    if (!isPlaying) return;
 
-    // Calculate actual elapsed time locally + 450ms lead-in anticipation
+    // Continuously update progress bar and idle timestamp
+    updateProgressUI();
+
+    if (lyricsList.length === 0) return;
+
     const elapsed = Date.now() - lastProgressUpdate;
     const currentMs = currentTrackProgress + elapsed + KARAOKE_LEAD_OFFSET;
 
-    // Find active line
     let activeIndex = -1;
     for (let i = 0; i < lyricsList.length; i++) {
       if (lyricsList[i].timeMs <= currentMs) {
@@ -998,7 +1283,6 @@ function startLocalLyricsClock() {
       const gap = nextLineTime - lineTime;
       const age = currentMs - lineTime;
 
-      // If current line has finished (age > 3600ms or > 70% of gap) and next line exists, pre-roll next sentence waiting on screen!
       if (age > 3600 && age > (gap * 0.7) && nextLine && nextLine.text) {
         if (lastPreRollIndex !== activeIndex + 1) {
           lastPreRollIndex = activeIndex + 1;
@@ -1025,6 +1309,7 @@ function startLocalLyricsClock() {
 
 let lastActiveIndex = -1;
 function updateActiveLyricLine(activeIndex) {
+  if (!lyricsScrollBox) return;
   const lines = lyricsScrollBox.querySelectorAll('.lyric-line');
   lines.forEach((el, index) => {
     if (index === activeIndex) {
@@ -1070,11 +1355,11 @@ function updateOverlayLyricText(text) {
   }
 }
 
-// Currently Playing Polling — every 4.0s to stay safely within Spotify Web API rate limits
+// Currently Playing Polling
 function startNowPlayingPolling() {
   fetchCurrentlyPlaying();
   if (nowPlayingInterval) clearInterval(nowPlayingInterval);
-  nowPlayingInterval = setInterval(fetchCurrentlyPlaying, 4000);
+  nowPlayingInterval = setInterval(fetchCurrentlyPlaying, 3500);
 }
 
 let consecutiveNullPolls = 0;
@@ -1082,14 +1367,20 @@ let consecutiveNullPolls = 0;
 async function fetchCurrentlyPlaying() {
   const data = await spotifyApiCall('/v1/me/player/currently-playing');
   if (data && data.isRateLimited) {
-    return; // Retain current playback state during Spotify 429 rate limit window
+    return;
   }
   if (data && data.item) {
     consecutiveNullPolls = 0;
+    
+    // Active State details (Image 2)
     playerTitle.textContent = data.item.name;
     playerArtist.textContent = data.item.artists.map(a => a.name).join(', ');
     
-    // Sync progress local variables
+    // Idle State details (Image 1)
+    if (idleSubtitle) idleSubtitle.textContent = (data.item.artists[0]?.name || 'Artist/Song').toUpperCase();
+    if (idleTitle) idleTitle.textContent = data.item.name;
+
+    currentTrackDuration = data.item.duration_ms || 1;
     currentTrackProgress = data.progress_ms || 0;
     lastProgressUpdate = Date.now();
     isPlaying = data.is_playing;
@@ -1097,30 +1388,43 @@ async function fetchCurrentlyPlaying() {
     const art = data.item.album.images[2]?.url || data.item.album.images[0]?.url;
     if (art) playerAlbumArt.src = art;
 
-    // Fetch lyrics dynamically ONLY when track ID actually changes
-    if (data.item.id !== currentTrackId) {
-      currentTrackId = data.item.id;
-      const durSec = data.item.duration_ms ? data.item.duration_ms / 1000 : null;
-      fetchSyncedLyrics(data.item.name, data.item.artists[0].name, data.item.id, durSec);
+    if (stealthWidget) {
+      if (isPlaying) {
+        stealthWidget.classList.add('is-playing');
+      } else {
+        stealthWidget.classList.remove('is-playing');
+      }
     }
 
-    // Play/Pause SVG update
+    // Play/Pause Icon
     if (data.is_playing) {
       playIconSvg.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
     } else {
       playIconSvg.innerHTML = '<path d="M8 5v14l11-7z"/>';
     }
+
+    updateProgressUI();
+
+    if (data.item.id !== currentTrackId) {
+      currentTrackId = data.item.id;
+      const durSec = data.item.duration_ms ? data.item.duration_ms / 1000 : null;
+      fetchSyncedLyrics(data.item.name, data.item.artists[0].name, data.item.id, durSec);
+    }
   } else {
     consecutiveNullPolls++;
-    // Require 8 consecutive null polls (~20 seconds) of no playback before declaring idle
     if (consecutiveNullPolls >= 8) {
       playerTitle.textContent = 'Not Playing';
       playerArtist.textContent = 'Spotify Idle';
+      if (idleSubtitle) idleSubtitle.textContent = 'SPOTIFY';
+      if (idleTitle) idleTitle.textContent = 'Idle';
+      if (idleStatus) idleStatus.textContent = 'Idle';
+      if (stealthWidget) stealthWidget.classList.remove('is-playing');
+      if (progressFill) progressFill.style.width = '0%';
       playIconSvg.innerHTML = '<path d="M8 5v14l11-7z"/>';
       isPlaying = false;
       currentTrackId = '';
       lyricsList = [];
-      lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">Waiting for music to play...</div>';
+      if (lyricsScrollBox) lyricsScrollBox.innerHTML = '<div class="lyrics-placeholder">Waiting for music to play...</div>';
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-lyric-text', 'Waiting for music...');
@@ -1131,24 +1435,24 @@ async function fetchCurrentlyPlaying() {
 
 // Connection Badge
 function updateConnectionStatus(isConnected, text) {
-  if (isConnected) {
-    statusBadge.classList.add('connected');
-  } else {
-    statusBadge.classList.remove('connected');
+  if (statusBadge) {
+    if (isConnected) {
+      statusBadge.classList.add('connected');
+    } else {
+      statusBadge.classList.remove('connected');
+    }
   }
-  statusText.textContent = text;
+  if (statusText) statusText.textContent = text;
 }
 
 // Settings Modal
 function showSettingsModal() { 
-  settingsModal.classList.remove('hidden'); 
-  notifyWindowResize(460);
+  if (settingsModal) settingsModal.classList.remove('hidden'); 
+  notifyWindowResize(380);
 }
 function hideSettingsModal() { 
-  settingsModal.classList.add('hidden'); 
-  if (resultsContainer.classList.contains('collapsed')) {
-    notifyWindowResize(210);
-  }
+  if (settingsModal) settingsModal.classList.add('hidden'); 
+  updateWidgetVisualState();
 }
 
 function saveSettings() {
@@ -1177,7 +1481,7 @@ function showToastNotification(icon, msg) {
   if (toastTimeout) clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
     toastBanner.classList.add('hidden');
-  }, 2500);
+  }, 2200);
 }
 
 function escapeHtml(str) {
@@ -1194,5 +1498,3 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-
-// 999
